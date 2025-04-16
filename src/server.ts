@@ -23,7 +23,7 @@ app.use("/api/drivers", driverRoutes);
 app.use("/api/trips", tripRoutes);
 app.use("/api/passengers", passengerRoutes);
 
-app.use((err: any, req: Request, res: Response, next: Funciton) => {
+app.use((err: any, req: Request, res: Response, next: Function) => {
     console.error(err.stack);
     res.status(500).send("Something broke!");
 });
