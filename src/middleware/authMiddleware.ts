@@ -5,29 +5,28 @@ import { getUserFromJWT, supabase } from "../utils/supabaseClient";
 declare global {
     namespace Express {
         interface Request {
-            user: any;
+            user?: any;
         }
     }
 }
 
-export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization;
-    
-    if (!authHeader) {
-        return res.status(401).json({ error: "Unauthorized" });
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "Unauthorized: Bearer token required" });
     }
 
     const { user, error } = await getUserFromJWT(authHeader);
 
     if (error || !user) {
-        console.error("Error fetching user from JWT:", error?.message);
         return res.status(401).json({ error: "Invalid or expired token" });
-    }
+    }   
 
     // attach the user to the request object
     req.user = user;
     next();
-}   
+}
 
 // middleware for admins
 export const adminMiddleware = async (req: Request, res: Response, next: NextFunction) => {
@@ -50,8 +49,10 @@ export const adminMiddleware = async (req: Request, res: Response, next: NextFun
         }
 
         if (count && count > 0) {
+            // user is an admin
             next();
         } else {
+            // user is not an admin
             return res.status(403).json({ error: "Forbidden" });
         }
 
@@ -64,7 +65,6 @@ export const adminMiddleware = async (req: Request, res: Response, next: NextFun
 }
     
     
-
 // middleware for drivers
 export const driverMiddleware = async (req: Request, res: Response, next: NextFunction) => {
     if (!req.user?.id) {
@@ -76,8 +76,8 @@ export const driverMiddleware = async (req: Request, res: Response, next: NextFu
     try {
         const { data, error, count } = await supabase
             .from("driverTable")
-            .select("user_id", { count: "exact" , head: true})
-            .eq("user_id", userId)
+            .select("driver_id", { count: "exact" , head: true})
+            .eq("driver_id", userId)
             .single();
 
         if (error) {
@@ -86,8 +86,10 @@ export const driverMiddleware = async (req: Request, res: Response, next: NextFu
         }
 
         if (count && count > 0) {
+            // user is a driver
             next();
         } else {
+            // user is not a driver
             return res.status(403).json({ error: "Forbidden" });
         }        
     } catch (error) {
@@ -117,8 +119,10 @@ export const passengerMiddleware = async (req: Request, res: Response, next: Nex
         }
 
         if (count && count > 0) {
+            // user is a passenger
             next();
         } else {
+            // user is not a passenger
             return res.status(403).json({ error: "Forbidden" });
         }
     } catch (error) {
