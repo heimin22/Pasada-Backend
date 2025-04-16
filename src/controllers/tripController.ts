@@ -248,4 +248,65 @@ export const completeTrip = async (req: Request, res: Response) => {
   res.status(200).json({ message: 'Trip completed', booking: bookingData });
 };
 
+// cancelling the trip
+export const cancelTrip = async (req: Request, res: Response) => {
+    const { bookingId } = req.params;
+    const userId = req.user?.id;
+    const { reason } = req.body;
+
+    if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { data: booking, error: bookingError } = await supabase.from("bookings")
+        .select('status, driver_id, id')
+        .eq('id', bookingId)
+        .in('status', ['requested', 'accepted', 'driver_arrived', 'ongoing'])
+        .single();
+
+    if (bookingError || !booking) {
+        console.error("Error fetching booking:", bookingError);
+        return res.status(404).json({ error: "Error fetching booking" });
+    }
+
+    // check the authorization (only the passenger can cancel the trip)
+    if (booking.id !== userId) {
+        return res.status(403).json({ error: "Forbidden: You are not allowed to cancel this trip" });
+    }
+
+    // update the booking status
+    const { data: cancelledBooking, error: updateError } = await supabase
+        .from("bookings")
+        .update({
+            status: "cancelled",
+            cancelled_at: new Date().toISOString(),
+            cancellation_reason: reason,
+        })
+        .eq('id', bookingId)
+        .select()
+        .single();
+
+    if (updateError || !cancelledBooking) {
+        console.error("Error updating booking:", updateError);
+        return res.status(500).json({ error: "Error updating booking" });
+    }
+    
+    // if the driver was already on the way and the trip was cancelled before the completion, we need to make the driver available again
+    if (booking.driver_id && ['accepted', 'driver_arrived', 'ongoing'].includes(booking.status)) {
+        const { error: driverStatusError } = await supabase
+            .from("driverTable")
+            .update({
+                is_available: true,
+            })
+            .eq("driver_id", booking.driver_id);
+
+        if (driverStatusError) {
+            console.error("Error updating driver status:", driverStatusError);
+            return res.status(500).json({ error: "Error updating driver status" });
+        }
+    }
+
+    res.status(200).json({ message: "Trip cancelled", booking: cancelledBooking });
+}
+
 
