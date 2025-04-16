@@ -71,6 +71,68 @@ export const requestTrip = async (req: Request, res: Response) => {
     // Notify drivers
 };
 
+export const acceptTrip = async (req: Request, res: Response) => {
+    const { bookingId } = req.params;
+    const driverUserId = req.user?.id;
+
+
+    if (!driverUserId) {
+        return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!bookingId) {
+        return res.status(400).json({ error: "Missing booking ID" });
+    }
+
+    // transaction to ensure atomicity
+    const { data, error } = await supabase.rpc('accept_bookings', {
+        booking_id_to_accept: bookingId,
+        driver_id_to_accept: driverUserId,
+    });
+
+    if (error) {
+        console.error("Error accepting trip:", error);
+        // check error message for specific reasons
+        if (error.message.includes("Booking not found") || error.message.includes("Booking already accepted")) {
+            return res.status(409).json({ message: 'Trip could not be accepted (already accepted or not found)'});
+        }
+        return res.status(500).json({ error: "Error accepting trip" });
+    }
+    res.status(200).json({ message: "Trip accepted successfully" });
+
+    // update the booking status and assign the driver to the booking
+    const { data: updatedBooking, error: updateError } = await supabase
+        .from("bookings")
+        .update({
+            status: "accepted",
+            driver_id: driverUserId,
+        })
+        .eq("id", bookingId)
+        .eq('status', 'requested')
+        .select()
+        .single();
+
+    if (updateError || !updatedBooking) {
+        console.error("Error updating booking:", updateError);
+        return res.status(409).json({ error: "Error updating booking" });
+    }
+
+    // set the driver status to unavailable
+    const { error: driverStatusError } = await supabase
+        .from("driverTable")
+        .update({
+            is_available: false,
+        })
+        .eq("driver_id", driverUserId);
+        
+    if (driverStatusError) {
+        console.error("Error updating driver status:", driverStatusError);
+        return res.status(500).json({ error: "Error updating driver status" });
+    }
+
+    res.status(200).json({ message: "Trip accepted successfully", booking: updatedBooking });
+};
+
+
 
 
 
