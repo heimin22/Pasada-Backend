@@ -4,11 +4,16 @@
     "dotenv": "^16.4.7",
     "expo-server-sdk": "^3.14.0",
     "express": "^5.1.0",
+    "nodemon": "^3.1.0",
     "typescript": "^5.8.3"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
     "@types/express": "^5.0.1",
     "@types/node": "^22.14.0",
+    "cors": "^2.8.5",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.3"
   }
 }
