@@ -1,19 +1,19 @@
-// import express from 'express';
-// import asyncHandler from 'express-async-handler';
-// import {
-//   requestTrip,
-//   acceptTrip,
-//   driverArrived,
-//   startTrip,
-//   completeTrip,
-//   cancelTrip,
-//   getCurrentTrip,
-// } from '../controllers/tripController';
-// import { authenticate, driverMiddleware, passengerMiddleware } from '../middleware/authMiddleware';
+import express from 'express';
+import asyncHandler from 'express-async-handler';
+import {
+  requestTrip,
+  acceptTrip,
+  driverArrived,
+  startTrip,
+  completeTrip,
+  cancelTrip,
+  getCurrentTrip,
+} from '../controllers/tripController';
+import { authenticate, driverMiddleware, passengerMiddleware } from '../middleware/authMiddleware';
 
-// const router = express.Router();
+const router = express.Router();
 
-// // apply authentication globally to all routes
+// apply authentication globally to all routes
 // router.use(authenticate);
 
 // router.post('/request', passengerMiddleware, asyncHandler(requestTrip));
@@ -24,5 +24,5 @@
 // router.post('/:bookingId/complete', passengerMiddleware, asyncHandler(completeTrip));
 // router.post('/:bookingId/cancel', passengerMiddleware, asyncHandler(cancelTrip));
 
-// export default router;
+export default router;
 
