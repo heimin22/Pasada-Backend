@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import asyncHandler from 'express-async-handler';
 import {
   requestTrip,
@@ -13,16 +13,23 @@ import { authenticate, driverMiddleware, passengerMiddleware } from '../middlewa
 
 const router = express.Router();
 
-// apply authentication globally to all routes
-// router.use(authenticate);
+router.use(asyncHandler(authenticate as any));
 
-// router.post('/request', passengerMiddleware, asyncHandler(requestTrip));
-// router.get('/current', passengerMiddleware, asyncHandler(getCurrentTrip));
-// router.post('/:bookingId/accept', driverMiddleware, asyncHandler(acceptTrip));
-// router.post('/:bookingId/driver-arrived', driverMiddleware, asyncHandler(driverArrived));
-// router.post('/:bookingId/start', passengerMiddleware, asyncHandler(startTrip));
-// router.post('/:bookingId/complete', passengerMiddleware, asyncHandler(completeTrip));
-// router.post('/:bookingId/cancel', passengerMiddleware, asyncHandler(cancelTrip));
+// Passenger routes
+router.post('/request', asyncHandler(passengerMiddleware as any), asyncHandler(requestTrip));
+router.get('/current', asyncHandler(passengerMiddleware as any), asyncHandler(getCurrentTrip));
+router.post('/:tripId/cancel', asyncHandler(passengerMiddleware as any), asyncHandler(cancelTrip));
+
+// Driver routes
+router.post('/:tripId/accept', asyncHandler(driverMiddleware as any), asyncHandler(acceptTrip));
+router.post('/:tripId/driver-arrived', asyncHandler(driverMiddleware as any), asyncHandler(driverArrived));
+router.post('/:tripId/start', asyncHandler(driverMiddleware as any), asyncHandler(startTrip));
+router.post('/:tripId/complete', asyncHandler(driverMiddleware as any), asyncHandler(completeTrip));
+
+// Potential additional routes (examples, uncomment and implement controllers if needed):
+// router.get('/:tripId', asyncHandler(getTripDetails)); // Get details of a specific trip (accessible by passenger or driver involved?)
+// router.get('/history/passenger', asyncHandler(passengerMiddleware as any), asyncHandler(getPassengerTripHistory));
+// router.get('/history/driver', asyncHandler(driverMiddleware as any), asyncHandler(getDriverTripHistory));
 
 export default router;
 
