@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 
 import driverRoutes from "./routes/driverRoutes";
 import tripRoutes from "./routes/tripRoutes";
-import passengerRoutes from "./routes/passengerRoutes";
+// import passengerRoutes from "./routes/passengerRoutes";
 
 dotenv.config();
 
@@ -21,7 +21,7 @@ app.get("/", (req: Request, res: Response) => {
 
 app.use("/api/drivers", driverRoutes);
 app.use("/api/trips", tripRoutes);
-app.use("/api/passengers", passengerRoutes);
+// app.use("/api/passengers", passengerRoutes);
 
 app.use((err: any, req: Request, res: Response, next: Function) => {
     console.error(err.stack);
