@@ -1,40 +1,35 @@
-// import express from 'express';
-// import asyncHandler from 'express-async-handler';
-// import {
-//     requestTrip,
-//     acceptTrip,
-//     driverArrived,
-//     startTrip,
-//     completeTrip,
-//     cancelTrip,
-//     getCurrentTrip,
-// } from '../controllers/tripController';
-// import { authenticate, driverMiddleware, passengerMiddleware } from '../middleware/authMiddleware';
+import express, { Request, Response, NextFunction } from 'express';
+import asyncHandler from 'express-async-handler';
+import {
+  requestTrip,
+  acceptTrip,
+  driverArrived,
+  startTrip,
+  completeTrip,
+  cancelTrip,
+  getCurrentTrip,
+} from '../controllers/tripController';
+import { authenticate, driverMiddleware, passengerMiddleware } from '../middleware/authMiddleware';
 
-// const router = express.Router();
+const router = express.Router();
 
-// // apply authentication globally to all routes
-// router.use(authenticate as express.RequestHandler);
+router.use(asyncHandler(authenticate as any));
 
-// // POST /api/trips/request
-// router.post('/request', passengerMiddleware, asyncHandler(requestTrip));
+// Passenger routes
+router.post('/request', asyncHandler(passengerMiddleware as any), asyncHandler(requestTrip));
+router.get('/current', asyncHandler(passengerMiddleware as any), asyncHandler(getCurrentTrip));
+router.post('/:tripId/cancel', asyncHandler(passengerMiddleware as any), asyncHandler(cancelTrip));
 
-// // GET /api/trips/current
-// router.get('/current', passengerMiddleware, asyncHandler(getCurrentTrip));
+// Driver routes
+router.post('/:tripId/accept', asyncHandler(driverMiddleware as any), asyncHandler(acceptTrip));
+router.post('/:tripId/driver-arrived', asyncHandler(driverMiddleware as any), asyncHandler(driverArrived));
+router.post('/:tripId/start', asyncHandler(driverMiddleware as any), asyncHandler(startTrip));
+router.post('/:tripId/complete', asyncHandler(driverMiddleware as any), asyncHandler(completeTrip));
 
-// // POST /api/trips/accept/:bookingId
-// router.post('/:bookingId/accept', driverMiddleware, asyncHandler(acceptTrip));
+// Potential additional routes (examples, uncomment and implement controllers if needed):
+// router.get('/:tripId', asyncHandler(getTripDetails)); // Get details of a specific trip (accessible by passenger or driver involved?)
+// router.get('/history/passenger', asyncHandler(passengerMiddleware as any), asyncHandler(getPassengerTripHistory));
+// router.get('/history/driver', asyncHandler(driverMiddleware as any), asyncHandler(getDriverTripHistory));
 
-// // POST /api/trips/driver-arrived/:bookingId
-// router.post('/:bookingId/driver-arrived', driverMiddleware, asyncHandler(driverArrived));
+export default router;
 
-// // POST /api/trips/start/:bookingId
-// router.post('/:bookingId/start', passengerMiddleware, asyncHandler(startTrip));
-
-// // POST /api/trips/complete/:bookingId
-// router.post('/:bookingId/complete', passengerMiddleware, asyncHandler(completeTrip));
-
-// // POST /api/trips/cancel/:bookingId
-// router.post('/:bookingId/cancel', passengerMiddleware, asyncHandler(cancelTrip));
-
-// export default router;
