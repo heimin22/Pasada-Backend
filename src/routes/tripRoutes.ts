@@ -8,6 +8,9 @@ import {
   completeTrip,
   cancelTrip,
   getCurrentTrip,
+  getTripDetails,
+  getPassengerTripHistory,
+  getDriverTripHistory,
 } from '../controllers/tripController';
 import { authenticate, driverMiddleware, passengerMiddleware } from '../middleware/authMiddleware';
 
