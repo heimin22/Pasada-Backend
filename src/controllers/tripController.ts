@@ -561,3 +561,101 @@ export const cancelTrip = async (
     return;
   }
 };
+
+export const getTripDetails = async (req: Request, res: Response): Promise<void> => {
+  const { tripId } = req.params;
+  const userId = req.user?.id;
+
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  if (!tripId || typeof tripId !== "string") {
+    res.status(400).json({ error: "Missing trip ID" });
+    return;
+  }
+
+  try {
+    const { data: trip, error } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("id", tripId)
+      .or(`passenger_id.eq.${userId},driver_id.eq.${userId}`)
+      .maybeSingle();
+
+    if (error || !trip) {
+      console.error("Error fetching trip details:", error);
+      res.status(404).json({ error: "Trip not found or unauthorized." });
+      return;
+    }
+
+    res.status(200).json({ trip });
+    return;
+  }
+  catch (error) {
+    console.error("Error fetching trip details:", error);
+    res.status(500).json({ error: "An unexpected error occured." });
+    return;
+  }
+};
+
+export const getPassengerTripHistory = async (req: Request, res: Response): Promise<void> => {
+  const passengerId = req.user?.id;
+
+  if (!passengerId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  try {
+    const { data: history, error } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("passenger_id", passengerId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Erorr fetching trip history for passenger ${passengerId}:", error);
+      res.status(500).json({ error: "Error fetching trip history" });
+      return;
+    }
+
+    res.status(200).json(history || []);
+  }
+  catch (error) {
+    console.error("Error fetching trip history for passenger:", error);
+    res.status(500).json({ error: "An unexpected error occured. " });
+    return;
+  }
+};
+
+export const getDriverTripHistory = async (req: Request, res: Response): Promise<void> => {
+  const driverId = req.user?.id;
+
+  if (!driverId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  try {
+    const { data: history, error } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("driver_id", driverId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching trip history for driver ${driver_id}:", error);
+      res.status(500).json({ error: "Error fetching trip history" });
+      return;
+    }
+
+    res.status(200).json(history || []);
+  }
+  catch (error) {
+    console.error("Error fetching trip history for driver");
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
