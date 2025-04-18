@@ -583,7 +583,7 @@ export const getTripDetails = async (req: Request, res: Response): Promise<void>
       .eq("id", tripId)
       .or(`passenger_id.eq.${userId},driver_id.eq.${userId}`)
       .maybeSingle();
-      
+
     if (error || !trip) {
       console.error("Error fetching trip details:", error);
       res.status(404).json({ error: "Trip not found or unauthorized." });
@@ -599,4 +599,35 @@ export const getTripDetails = async (req: Request, res: Response): Promise<void>
     return;
   }
 };
+
+export const getPassengerTripHistory = async (req: Request, res: Response): Promise<void> => {
+  const passengerId = req.user?.id;
+
+  if (!passengerId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  try {
+    const { data: history, error } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("passenger_id", passengerId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Erorr fetching trip history for passenger ${passengerId}:", error);
+      res.status(500).json({ error: "Error fetching trip history" });
+      return;
+    }
+
+    res.status(200).json(history || []);
+  }
+  catch (error) {
+    console.error("Error fetching trip history for passenger:", error);
+    res.status(500).json({ error: "An unexpected error occured. " });
+    return;
+  }
+};
+
 
