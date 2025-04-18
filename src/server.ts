@@ -8,6 +8,8 @@ import tripRoutes from "./routes/tripRoutes";
 
 dotenv.config();
 
+console.log("This is the Pasada Backend Server");
+
 const app: Express = express();
 const port = process.env.PORT || 3000;
 
