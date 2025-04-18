@@ -26,10 +26,10 @@ router.post('/:tripId/driver-arrived', asyncHandler(driverMiddleware as any), as
 router.post('/:tripId/start', asyncHandler(driverMiddleware as any), asyncHandler(startTrip));
 router.post('/:tripId/complete', asyncHandler(driverMiddleware as any), asyncHandler(completeTrip));
 
-// Potential additional routes (examples, uncomment and implement controllers if needed):
-// router.get('/:tripId', asyncHandler(getTripDetails)); // Get details of a specific trip (accessible by passenger or driver involved?)
-// router.get('/history/passenger', asyncHandler(passengerMiddleware as any), asyncHandler(getPassengerTripHistory));
-// router.get('/history/driver', asyncHandler(driverMiddleware as any), asyncHandler(getDriverTripHistory));
+// Potential additional routes 
+router.get('/:tripId', asyncHandler(getTripDetails));
+router.get('/history/passenger', asyncHandler(passengerMiddleware as any), asyncHandler(getPassengerTripHistory)); 
+router.get('/history/driver', asyncHandler(driverMiddleware as any), asyncHandler(getDriverTripHistory)); 
 
 export default router;
 
