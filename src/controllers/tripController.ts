@@ -630,4 +630,32 @@ export const getPassengerTripHistory = async (req: Request, res: Response): Prom
   }
 };
 
+export const getDriverTripHistory = async (req: Request, res: Response): Promise<void> => {
+  const driverId = req.user?.id;
+
+  if (!driverId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  try {
+    const { data: history, error } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("driver_id", driverId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching trip history for driver ${driver_id}:", error);
+      res.status(500).json({ error: "Error fetching trip history" });
+      return;
+    }
+
+    res.status(200).json(history || []);
+  }
+  catch (error) {
+    console.error("Error fetching trip history for driver");
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
 
