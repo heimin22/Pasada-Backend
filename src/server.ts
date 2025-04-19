@@ -1,5 +1,4 @@
-import express, { Express, Request, Response } from "express";
-import cors from "cors";
+
 import dotenv from "dotenv";
 
 import driverRoutes from "./routes/driverRoutes";
@@ -32,4 +31,6 @@ app.use((err: any, req: Request, res: Response, next: Function) => {
 
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
-});
+};
+
+
