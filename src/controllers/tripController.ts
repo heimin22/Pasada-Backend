@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { supabase } from "../utils/supabaseClient";
+import { supabase } from "../utils/supabaseClient.ts";
 
 const SEARCH_RADIUS_METERS = 5000;
 const MAX_DRIVERS_TO_FIND = 10;
@@ -654,8 +654,11 @@ export const getDriverTripHistory = async (req: Request, res: Response): Promise
     res.status(200).json(history || []);
   }
   catch (error) {
-    console.error("Error fetching trip history for driver");
+    console.error("Error fetching trip history for driver", error);
     res.status(500).json({ error: "Internal server error" });
   }
 }
+
+
+
 

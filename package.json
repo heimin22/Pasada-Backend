@@ -13,6 +13,7 @@
     "@types/express": "^5.0.1",
     "@types/node": "^22.14.0",
     "cors": "^2.8.5",
+    "supabase": "^2.20.12",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.3"
