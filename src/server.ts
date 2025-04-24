@@ -12,13 +12,13 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.get("/", (req: Request, res: Response) => {
+app.get("/", (_req: Request, res: Response) => {
   res.send("Pasada Backend API is running");
 });
 app.use("/api/drivers", driverRoutes);
 app.use("/api/trips", tripRoutes);
 // app.use("/api/passengers", passengerRoutes);
-app.use((err: any, req: Request, res: Response, next: Function) => {
+app.use((err: Error, _req: Request, res: Response, _next: express.NextFunction) => {
   console.error(err.stack);
   res.status(500).send("Something broke!");
 });
