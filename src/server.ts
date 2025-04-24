@@ -1,8 +1,9 @@
-
 import dotenv from "dotenv";
-
-import driverRoutes from "./routes/driverRoutes";
-import tripRoutes from "./routes/tripRoutes";
+import express, { Express, Request, Response } from "express";
+import driverRoutes from "./routes/driverRoutes.ts";
+import tripRoutes from "./routes/tripRoutes.ts";
+import process from "node:process";
+import cors from "cors";
 // import passengerRoutes from "./routes/passengerRoutes";
 
 dotenv.config();
@@ -31,6 +32,5 @@ app.use((err: any, req: Request, res: Response, next: Function) => {
 
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
-};
-
+});
 
