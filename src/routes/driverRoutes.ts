@@ -1,6 +1,6 @@
 import express from "express";
-import { updateDriverLocation, updateDriverAvailability } from "../controllers/driverController"; // import the controller functions from driverController.ts
-import { authenticate, driverMiddleware } from "../middleware/authMiddleware"; // import the middleware functions from authMiddleware.ts
+import { updateDriverLocation, updateDriverAvailability } from "../controllers/driverController.ts"; // import the controller functions from driverController.ts
+import { authenticate, driverMiddleware } from "../middleware/authMiddleware.ts"; // import the middleware functions from authMiddleware.ts
 
 const router = express.Router();
 
