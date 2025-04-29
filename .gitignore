@@ -47,3 +47,5 @@ jest.config.js
 Thumbs.db
 Desktop.ini
 .env.production
+Dockerfile
+fly.toml
