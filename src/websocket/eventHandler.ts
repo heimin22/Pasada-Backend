@@ -21,7 +21,7 @@ export class WebSocketHandler {
     public handleConnection(socket: Socket) {
         console.log('Client connected: ', socket.id);
 
-        socket.on('join_trip', (tripId: String) => {
+        socket.on('join_trip', (tripId: string) => {
             socket.join(`trip_${tripId}`);
             console.log(`Client ${socket.id} joined trip ${tripId}`);
         });

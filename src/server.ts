@@ -1,10 +1,11 @@
 import { Server } from "socket.io";
 import { createServer } from "http";
 import express, { Express, Request, Response } from "express";
-import driverRoutes from "./routes/driverRoutes";
-import tripRoutes from "./routes/tripRoutes";
+import driverRoutes from "./routes/driverRoutes.ts";
+import tripRoutes from "./routes/tripRoutes.ts";
 import cors from "cors";
 import dotenv from "dotenv";
+import process from "node:process";
 
 // import passengerRoutes from "./routes/passengerRoutes";
 dotenv.config();
