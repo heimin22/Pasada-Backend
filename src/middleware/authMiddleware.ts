@@ -1,10 +1,11 @@
 import { NextFunction, Request, Response } from "express";
 import { getUserFromJWT, supabase } from "../utils/supabaseClient.ts";
+import { User } from "@supabase/auth-js";
 // define a custom property 'user' on the request object
 declare global {
   namespace Express {
     interface Request {
-      user?: any;
+      user?: User;
     }
   }
 }
@@ -39,7 +40,7 @@ export const adminMiddleware = async (
   }
   const userId = req.user.id;
   try {
-    const { data, error, count } = await supabase
+    const { error, count } = await supabase
       .from("adminTable")
       .select("admin_id", { count: "exact", head: true })
       .eq("admin_id", userId)
@@ -75,7 +76,7 @@ export const driverMiddleware = async (
   }
   const userId = req.user.id;
   try {
-    const { data, error, count } = await supabase
+    const { error, count } = await supabase
       .from("driverTable")
       .select("driver_id", { count: "exact", head: true })
       .eq("driver_id", userId)
@@ -107,7 +108,7 @@ export const passengerMiddleware = async (
   }
   const userId = req.user.id;
   try {
-    const { data, error, count } = await supabase
+    const { error, count } = await supabase
       .from("passenger")
       .select("id", { count: "exact", head: true })
       .eq("id", userId)
