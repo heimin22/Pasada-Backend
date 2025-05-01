@@ -17,11 +17,24 @@ if (!supabaseUrl || !supaabseKey || !supabaseServiceRoleKey) {
   process.exit(1);
 }
 // client for general use, respects RLS
-export const supabase: SupabaseClient = createClient(supabaseUrl, supaabseKey);
+export const supabase: SupabaseClient = createClient(supabaseUrl, supaabseKey, {
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    },
+  },
+});
 // admin client for operations requiring elevated privileges (use carefully!)
 export const supabaseAdmin: SupabaseClient = createClient(
   supabaseUrl,
-  supabaseServiceRoleKey!
+  supabaseServiceRoleKey!,
+  {
+    realtime: {
+      params: {
+        eventsPerSecond: 10,
+      },
+    },
+  }
 );
 // helper function to get user from JWT
 export const getUserFromJWT = async (
