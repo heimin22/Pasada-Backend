@@ -4,11 +4,15 @@ import tripRoutes from "./routes/tripRoutes.ts";
 import cors from "cors";
 import dotenv from "dotenv";
 import process from "node:process";
+import { setupRealtimeSubscriptions } from "./utils/realtimeSubscriptions.ts";
 
 dotenv.config();
 console.log("This is the Pasada Backend Server");
 const app: Express = express();
 const port = process.env.PORT || 3000;
+
+// Set up Supabase Realtime subscriptions
+setupRealtimeSubscriptions();
 
 app.use(cors());
 app.use(express.json());
@@ -28,6 +32,13 @@ app.use(
 
 app.get("/", (_req: Request, res: Response) => {
   res.send("Pasada Backend API is running");
+});
+
+app.get("/api/test", (_req: Request, res: Response) => {
+  res.json({ 
+    message: "Connection successful!", 
+    timestamp: new Date().toISOString() 
+  });
 });
 
 app.listen(port, () => {
