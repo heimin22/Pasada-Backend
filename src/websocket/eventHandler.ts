@@ -1,50 +1,60 @@
-import { Server, Socket } from "socket.io";
 import { supabase } from '../utils/supabaseClient.ts';
+export class RealtimeEventHandler {
+    private channels: ReturnType<typeof supabase.channel>[] = [];
 
-export class WebSocketHandler {
-    private io: Server;
-
-    constructor(io: Server) {
-        this.io = io;
-        this.setupSupabaseSubscription();
+    constructor() {
+        this.setupSubscriptions();
     }
 
-    private setupSupabaseSubscription() {
-        const channel = supabase.channel('bookings_channel')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, (payload) => {
-                this.io.to(`trip_${(payload.new as { id: string }).id}`).emit('trip_update', payload.new);
-            }
-        )
-        .subscribe();
+    /**
+     * Sets up all Supabase Realtime subscriptions
+     */
+    private setupSubscriptions() {
+        this.setupBookingsSubscription();
+        this.setupDriverLocationSubscription();
     }
 
-    public handleConnection(socket: Socket) {
-        console.log('Client connected: ', socket.id);
+    /**
+     * Sets up subscription for bookings table changes
+     */
+    private setupBookingsSubscription() {
+        const bookingsChannel = supabase.channel('bookings_changes')
+            .on('postgres_changes', 
+                { event: '*', schema: 'public', table: 'bookings' }, 
+                (payload) => {
+                    console.log('Booking change detected:', payload);
+                    // The client will handle this data directly through their own subscriptions
+                }
+            )
+            .subscribe();
+        
+        this.channels.push(bookingsChannel);
+    }
 
-        socket.on('join_trip', (tripId: string) => {
-            socket.join(`trip_${tripId}`);
-            console.log(`Client ${socket.id} joined trip ${tripId}`);
+    /**
+     * Sets up subscription for driver location updates
+     */
+    private setupDriverLocationSubscription() {
+        const driversChannel = supabase.channel('drivers_location')
+            .on('postgres_changes', 
+                { event: 'UPDATE', schema: 'public', table: 'driverTable', filter: 'current_location=neq.null' }, 
+                (payload) => {
+                    console.log('Driver location updated:', payload);
+                    // The client will handle this data directly through their own subscriptions
+                }
+            )
+            .subscribe();
+        
+        this.channels.push(driversChannel);
+    }
+
+    /**
+     * Unsubscribes from all channels when shutting down
+     */
+    public cleanup() {
+        this.channels.forEach(channel => {
+            supabase.removeChannel(channel);
         });
-
-        socket.on('driver_location_update', async (data: {
-            driverId: string,
-            latitude: number,
-            longitude: number
-          }) => {
-            // Update driver location in database
-            await supabase
-              .from('drivers')
-              .update({
-                current_location: `POINT(${data.longitude} ${data.latitude})`
-              })
-              .eq('id', data.driverId);
-      
-            // Broadcast to relevant rooms
-            this.io.to(`driver_${data.driverId}`).emit('location_update', data);
-          });
-      
-          socket.on('disconnect', () => {
-            console.log('Client disconnected:', socket.id);
-          });
+        console.log('Cleaned up all Supabase Realtime subscriptions');
     }
 }
