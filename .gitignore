@@ -33,13 +33,10 @@ coverage/
 
 # Supabase-Specific
 supabase/.temp/        
-supabase/config.toml   
 supabase/functions/node_modules/ 
 supabase/.env          
 
 # Testing/Jest
-jest.config.js
-/junit.xml
 /test-results.xml
 
 # OS Junk
@@ -47,5 +44,4 @@ jest.config.js
 Thumbs.db
 Desktop.ini
 .env.production
-Dockerfile
-fly.toml
+
