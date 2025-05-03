@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { supabase } from "../utils/supabaseClient.ts";
+import { supabase } from "../utils/supabaseClient";
 export const updateDriverLocation = async (req: Request, res: Response) => {
   const { latitude, longitude } = req.body;
   const driverId = req.params.id;

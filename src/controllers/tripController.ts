@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { supabase } from "../utils/supabaseClient.ts";
+import { supabase } from "../utils/supabaseClient";
 const SEARCH_RADIUS_METERS = 5000;
 const MAX_DRIVERS_TO_FIND = 10;
 export const requestTrip = async (

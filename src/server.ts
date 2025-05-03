@@ -1,10 +1,9 @@
 import express, { Express, Request, Response } from "express";
-import driverRoutes from "./routes/driverRoutes.ts";
-import tripRoutes from "./routes/tripRoutes.ts";
+import driverRoutes from "./routes/driverRoutes";
+import tripRoutes from "./routes/tripRoutes";
 import cors from "cors";
 import dotenv from "dotenv";
-import process from "node:process";
-import { setupRealtimeSubscriptions } from "./utils/realtimeSubscriptions.ts";
+import { setupRealtimeSubscriptions } from "./utils/realtimeSubscriptions";
 
 dotenv.config();
 console.log("This is the Pasada Backend Server");

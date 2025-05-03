@@ -1,4 +1,4 @@
-import { supabase } from '../utils/supabaseClient.ts';
+import { supabase } from '../utils/supabaseClient';
 export class RealtimeEventHandler {
     private channels: ReturnType<typeof supabase.channel>[] = [];
 

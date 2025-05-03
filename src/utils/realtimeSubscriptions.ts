@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient.ts';
+import { supabase } from './supabaseClient';
 
 export const setupRealtimeSubscriptions = () => {
   console.log('Setting up Supabase Realtime subscriptions');

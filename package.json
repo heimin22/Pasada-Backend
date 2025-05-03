@@ -22,12 +22,13 @@
   "scripts": {
     "start": "node dist/server.js",
     "build": "tsc",
-    "dev": "ts-node-dev src/server.ts",
+    "dev": "ts-node-dev --respawn src/server.ts",
     "postinstall": "npm run build"
   },
   "engines": {
     "node": ">=18.0.0"
   }
 }
+
 
 
