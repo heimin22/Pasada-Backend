@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from "express";
-import { getUserFromJWT, supabase } from "../utils/supabaseClient.ts";
+import { getUserFromJWT, supabase } from "../utils/supabaseClient";
 import { User } from "@supabase/auth-js";
 // define a custom property 'user' on the request object
 declare global {

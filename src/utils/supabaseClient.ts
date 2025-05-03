@@ -8,6 +8,7 @@ import {
 import dotenv from "dotenv";
 dotenv.config();
 
+// Remove .ts extension from imports
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supaabseKey = process.env.SUPABASE_ANON_KEY!;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
