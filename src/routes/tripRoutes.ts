@@ -11,8 +11,8 @@ import {
   getTripDetails,
   getPassengerTripHistory,
   getDriverTripHistory,
-} from '../controllers/tripController.ts';
-import { authenticate, driverMiddleware, passengerMiddleware } from '../middleware/authMiddleware.ts';
+} from '../controllers/tripController';
+import { authenticate, driverMiddleware, passengerMiddleware } from '../middleware/authMiddleware';
 
 const router = express.Router();
 

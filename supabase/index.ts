@@ -1,7 +1,10 @@
 import express from "express";
 import cors from "cors";
 import { createClient } from "@supabase/supabase-js";
-import process from "node:process";
+import dotenv from "dotenv";
+
+// Load environment variables
+dotenv.config();
 
 // Constants
 const SEARCH_RADIUS_METERS = 5000;
@@ -199,9 +202,11 @@ app.get("/api/trips/current/:userId", async (req: express.Request, res: express.
   }
 });
 
-// Export for use in server.ts
+// Start the server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
 export default app;
-
-
-
 
