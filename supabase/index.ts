@@ -16,7 +16,7 @@ app.use(express.json());
 app.use(cors());
 
 // Basic health check endpoint
-app.get("/api/test", function(_req: Request, res: Response) {
+app.get("/api/test", function(_req: Request, res: Response): void {
   res.json({ 
     message: "Pasada Backend API is running", 
     timestamp: new Date().toISOString() 
