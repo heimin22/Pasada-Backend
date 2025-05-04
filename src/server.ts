@@ -8,7 +8,7 @@ import { setupRealtimeSubscriptions } from "./utils/realtimeSubscriptions";
 dotenv.config();
 console.log("This is the Pasada Backend Server");
 const app: Express = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 8080;
 
 // Set up Supabase Realtime subscriptions
 setupRealtimeSubscriptions();
@@ -38,6 +38,11 @@ app.get("/api/test", (_req: Request, res: Response) => {
     message: "Connection successful!", 
     timestamp: new Date().toISOString() 
   });
+});
+
+// Add a health check endpoint
+app.get("/health", (_req: Request, res: Response) => {
+  res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
 });
 
 app.listen(port, () => {

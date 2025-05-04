@@ -1,43 +1,28 @@
-# fly.toml app configuration file generated for pasada-backend on 2025-05-04T15:13:16+08:00
+# fly.toml app configuration file generated for pasada-backend on 2025-05-05T06:30:56+08:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'pasada-backend'
-primary_region = 'sin'
+app = "pasada-backend"
+primary_region = "sin"
 
 [build]
-  builder = 'heroku/builder:24'
+builder = "heroku/builder:24"
 
 [env]
-  NODE_ENV = 'production'
-  PORT = '8080'
+NODE_ENV = "production"
+PORT = "8080"
 
 [http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = 'stop'
-  auto_start_machines = true
-  min_machines_running = 1
-
-[[services]]
-  protocol = 'tcp'
-  internal_port = 8080
-
-  [[services.ports]]
-    port = 80
-    handlers = ['http']
-
-  [[services.ports]]
-    port = 443
-    handlers = ['tls', 'http']
-
-  [services.concurrency]
-    type = 'connections'
-    hard_limit = 1000
-    soft_limit = 800
+auto_start_machines = true
+auto_stop_machines = true
+force_https = true
+internal_port = 8080
+min_machines_running = 1
+processes = [ "app" ]
 
 [[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
-  cpus = 1
+cpu_kind = "shared"
+cpus = 1
+memory = "1gb"
+
