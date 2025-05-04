@@ -1,4 +1,4 @@
-FROM node:18-stretch
+FROM node:23-stretch
 
 WORKDIR /app
 
@@ -10,4 +10,3 @@ RUN npm run build
 
 EXPOSE 8080
 CMD ["node", "dist/server.js"]
-

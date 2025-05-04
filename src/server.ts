@@ -8,7 +8,14 @@ import { setupRealtimeSubscriptions } from "./utils/realtimeSubscriptions";
 dotenv.config();
 console.log("This is the Pasada Backend Server");
 const app: Express = express();
-const port = process.env.PORT || 8080;
+const portEnv = process.env.PORT;
+const port = portEnv ? parseInt(portEnv, 10) : 8080;
+
+// Check if port is a valid number
+if (isNaN(port)) {
+  console.error(`Invalid PORT environment variable: ${portEnv}`);
+  process.exit(1);
+}
 
 // Set up Supabase Realtime subscriptions
 setupRealtimeSubscriptions();
@@ -40,13 +47,13 @@ app.get("/api/test", (_req: Request, res: Response) => {
   });
 });
 
-// Add a health check endpoint
 app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
 });
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+// Listen on all network interfaces
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server listening on 0.0.0.0:${port}`);
 });
 
 export { app };

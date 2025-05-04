@@ -9,6 +9,9 @@ primary_region = "sin"
 [build]
 builder = "heroku/builder:24"
 
+[build.args]
+NODE_VERSION = "18"
+
 [env]
 NODE_ENV = "production"
 PORT = "8080"
@@ -25,4 +28,5 @@ processes = [ "app" ]
 cpu_kind = "shared"
 cpus = 1
 memory = "1gb"
+
 
