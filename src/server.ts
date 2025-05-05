@@ -51,6 +51,13 @@ app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
 });
 
+app.get("/api/test/trips", (_req: Request, res: Response) => {
+  res.json({ 
+    message: "This is a test endpoint that doesn't require authentication",
+    timestamp: new Date().toISOString() 
+  });
+});
+
 // Listen on all network interfaces
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server listening on 0.0.0.0:${port}`);
