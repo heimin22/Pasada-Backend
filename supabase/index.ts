@@ -44,8 +44,8 @@ app.post("/api/trips/request", asyncHandler(async (req: Request, res: Response):
   }
 
   // Get Supabase client
-  const SUPABASE_URL = process.env.SUPABASE_URL!; // Changed from Deno.env.get to process.env
-  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!; // Changed from Deno.env.get to process.env
+  const SUPABASE_URL = process.env.SUPABASE_URL!; 
+  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!; 
   const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   // Find nearby drivers
@@ -121,8 +121,8 @@ app.post("/api/trips/accept", asyncHandler(async (req: Request, res: Response): 
   }
 
   // Get Supabase client
-  const SUPABASE_URL = process.env.SUPABASE_URL!; // Changed from Deno.env.get to process.env
-  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!; // Changed from Deno.env.get to process.env
+  const SUPABASE_URL = process.env.SUPABASE_URL!; 
+  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!; 
   const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   // Update booking status

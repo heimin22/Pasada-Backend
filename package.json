@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
+    "axios": "^1.9.0",
     "dotenv": "^16.4.7",
     "expo-server-sdk": "^3.14.0",
     "express": "^5.1.0",
@@ -29,6 +30,4 @@
     "node": ">=18.0.0"
   }
 }
-
-
 
