@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { supabase } from "../utils/supabaseClient";
-const SEARCH_RADIUS_METERS = 5000;
-const MAX_DRIVERS_TO_FIND = 10;
+const SEARCH_RADIUS_METERS = 500;
+const MAX_DRIVERS_TO_FIND = 20;
 export const requestTrip = async (
   req: Request,
   res: Response,
@@ -32,18 +32,30 @@ export const requestTrip = async (
   ) {
     res.status(400).json({ error: "Missing required fields" });
     return;
-  }
+  } 
   try {
-    // find nearby drivers
-    const { data: drivers, error: searchError } = await supabase.rpc(
-      "find_available_drivers_nearby",
-      {
-        passenger_lon: origin_longitude,
-        passenger_lat: origin_latitude,
-        search_radius: SEARCH_RADIUS_METERS,
-        max_drivers: MAX_DRIVERS_TO_FIND,
-      },
-    );
+    // find nearby drivers that match the route
+    const { data: drivers, error: searchError } = await supabase
+      .from("driverTable")
+      .select(`
+        driver_id,
+        current_location,
+        vehicle:vehicle_id (
+          passenger_capacity,
+          sitting_passenger,
+          standing_passenger,
+          route_id
+        )
+      `)
+      .eq("is_available", true)                                   // online
+      .eq("vehicle.route_id", route_trip)                         // same route
+      .filter(
+        "current_location",
+        "st_dwithin",
+        `(${origin_longitude},${origin_latitude},300)`
+      )                                                           // within 300 m
+      .order("current_location", { ascending: true })             // KNN sort
+      .limit(MAX_DRIVERS_TO_FIND);
     if (searchError) {
       console.error("Error finding drivers:", searchError);
       res.status(500).json({ error: "Error finding drivers" });
@@ -66,9 +78,10 @@ export const requestTrip = async (
         origin_address: origin_address,
         destination_location: destinationLocationWKT,
         destination_address: destination_address,
-        route_trip: route_trip,
         fare: fare,
         payment_method: payment_method,
+        created_at: new Date().toISOString(),
+        currentroute_id: route_trip,
       })
       .select()
       .single();
