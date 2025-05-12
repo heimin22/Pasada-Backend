@@ -194,6 +194,193 @@ export const acceptTrip = async (
     return;
   }
 };
+export const assignDriver = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const { bookingId } = req.body;
+  const passengerUserId = req.user?.id;
+  if (!passengerUserId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  if (!bookingId) {  
+    res.status(400).json({ error: "Missing booking ID" });
+    return;
+  }
+
+  try {
+    const { data: booking, error: bookingError } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("id", bookingId)
+      .eq("passenger_id", passengerUserId)
+      .single();
+  
+    if (!booking) {
+      res.status(404).json({ error: "Booking not found" });
+      return;
+    }
+    
+    const { data: drivers, error: searchError } = await supabase
+      .from("driverTable")
+      .select(`
+        driver_id,
+        current_location,
+        vehicle:vehicle_id (
+          passenger_capacity,
+          sitting_passenger,
+          standing_passenger,
+          route_id
+        )
+      `)
+      .eq("is_available", true)
+      .eq("vehicle.route_id", booking.currentroute_id)
+      .filter(
+        "current_location",
+        "st_dwithin",
+        `(${booking.origin_location.x},${booking.origin_location.y},300)`
+      )
+      .order("current_location", { ascending: true })
+      .limit(MAX_DRIVERS_TO_FIND);
+      
+    if (searchError) {
+      console.error("Error finding drivers:", searchError);
+      res.status(500).json({ error: "Error finding drivers" });
+      return;
+    }
+    
+    if (!drivers || drivers.length === 0) {
+      res.status(404).json({ error: "No drivers found" });
+      return;
+    }
+    
+    // Update booking status to searching
+    const { error: updateError } = await supabase
+      .from("bookings")
+      .update({ status: "searching" })
+      .eq("id", bookingId);
+      
+    if (updateError) {
+      console.error("Error updating booking status:", updateError);
+      res.status(500).json({ error: "Error updating booking status" });
+      return;
+    }
+    
+    // Notify drivers (you can implement this part)
+    // ...
+    
+    res.status(200).json({ 
+      message: "Driver assignment initiated",
+      booking_id: bookingId,
+      drivers_notified: drivers.length
+    });
+    
+      
+  } catch (error) {
+    console.error("Error assigning driver:", error);
+    res.status(500).json({ error: "Error assigning driver" });
+    return;
+  }
+};
+export const getBookingStatus = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  const { bookingId } = req.params;
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  
+  try {
+    const { data: booking, error } = await supabase
+      .from("bookings")
+      .select("*, driver_id")
+      .eq("id", bookingId)
+      .or(`passenger_id.eq.${userId},driver_id.eq.${userId}`)
+      .single();
+      
+    if (error || !booking) {
+      console.error("Error fetching booking status:", error);
+      res.status(404).json({ error: "Booking not found or unauthorized" });
+      return;
+    }
+    
+    res.status(200).json({
+      id: booking.id,
+      status: booking.status,
+      driver_id: booking.driver_id,
+      // Include other relevant fields
+    });
+  } catch (error) {
+    console.error("Error getting booking status:", error);
+    res.status(500).json({ error: "Error getting booking status" });
+    return;
+  }
+};
+export const getDriverDetails = async ( req: Request, res: Response ): Promise<void> => {
+  const { driverId } = req.params;
+  const userId = req.user?.id;
+  
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  
+  try {
+    // First check if this user has a booking with this driver
+    const { data: booking, error: bookingError } = await supabase
+      .from("bookings")
+      .select("id")
+      .eq("passenger_id", userId)
+      .eq("driver_id", driverId)
+      .maybeSingle();
+      
+    // Allow if user is the driver or has a booking with this driver
+    if ((bookingError || !booking) && userId !== driverId) {
+      res.status(403).json({ error: "Unauthorized to view this driver's details" });
+      return;
+    }
+    
+    const { data: driver, error } = await supabase
+      .from("driverTable")
+      .select(`
+        driver_id,
+        first_name,
+        last_name,
+        phone_number,
+        profile_picture,
+        vehicle:vehicle_id (
+          model,
+          plate_number,
+          color,
+          passenger_capacity
+        )
+      `)
+      .eq("driver_id", driverId)
+      .single();
+      
+    if (error || !driver) {
+      console.error("Error fetching driver details:", error);
+      res.status(404).json({ error: "Driver not found" });
+      return;
+    }
+    
+    res.status(200).json({
+      id: driver.driver_id,
+      name: `${driver.first_name} ${driver.last_name}`,
+      phone_number: driver.phone_number,
+      profile_picture: driver.profile_picture,
+      vehicle: driver.vehicle,
+    });
+    
+  } catch (error) {
+    console.error("Error fetching driver details:", error);
+    res.status(500).json({ error: "Error fetching driver details" });
+  }
+};
 // simplified controllers for other states
 // driver arrived at the pickup location
 export const driverArrived = async (
