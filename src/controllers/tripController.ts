@@ -1,5 +1,18 @@
 import { Request, Response } from "express";
 import { supabase } from "../utils/supabaseClient";
+import admin from 'firebase-admin';
+import { getMessaging } from 'firebase-admin/messaging';
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    }),
+  });
+}
+
 const SEARCH_RADIUS_METERS = 500;
 const MAX_DRIVERS_TO_FIND = 20;
 export const requestTrip = async (
@@ -106,6 +119,7 @@ export const requestTrip = async (
       `INFO: Searching for drivers within ${SEARCH_RADIUS_METERS} meters`,
     );
     // send notifications to drivers
+    await sendDriverNotifications(drivers, newBooking);
   } catch (error) {
     console.error("Error requesting trip:", error);
     res.status(500).json({ error: "Error requesting trip" });
@@ -267,8 +281,8 @@ export const assignDriver = async (
       return;
     }
     
-    // Notify drivers (you can implement this part)
-    // ...
+    // Notify drivers
+    await sendDriverNotifications(drivers, booking);
     
     res.status(200).json({ 
       message: "Driver assignment initiated",
@@ -787,5 +801,59 @@ export const getDriverTripHistory = async (
   } catch (error) {
     console.error("Error fetching trip history for driver", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+const sendDriverNotifications = async (drivers: any[], booking: any) => {
+  try {
+    // Get driver IDs
+    const driverIds = drivers.map(driver => driver.driver_id);
+    
+    // Get FCM tokens for these drivers
+    const { data: tokenData, error: tokenError } = await supabase
+      .from('push_tokens')
+      .select('user_id, token')
+      .in('user_id', driverIds);
+      
+    if (tokenError) {
+      console.error('Error fetching driver FCM tokens:', tokenError);
+      return;
+    }
+    
+    // Create a map of driver IDs to tokens
+    const tokenMap = tokenData.reduce((map: {[key: string]: string}, item: any) => {
+      map[item.user_id] = item.token;
+      return map;
+    }, {});
+    
+    // Prepare and send notifications
+    const messaging = getMessaging();
+    const notificationPromises = drivers.map(driver => {
+      const token = tokenMap[driver.driver_id];
+      if (!token) return Promise.resolve(); // Skip if no token
+      
+      return messaging.send({
+        token,
+        notification: {
+          title: 'New Trip Request',
+          body: `New trip request from ${booking.origin_address} to ${booking.destination_address}`,
+        },
+        data: {
+          booking_id: booking.id.toString(),
+          type: 'new_trip_request',
+          origin: booking.origin_address,
+          destination: booking.destination_address,
+          fare: booking.fare.toString(),
+        },
+        android: {
+          priority: 'high',
+        },
+      });
+    });
+    
+    await Promise.all(notificationPromises.filter(Boolean));
+    console.log(`Sent notifications to ${notificationPromises.filter(Boolean).length} drivers`);
+  } catch (error) {
+    console.error('Error sending FCM notifications:', error);
   }
 };
