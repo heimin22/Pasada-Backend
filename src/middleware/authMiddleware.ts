@@ -13,7 +13,7 @@ console.log("Hello Pasada!");
 export const authenticate = async (
   req: Request,
   res: Response,
-  next: NextFunction,
+  next: NextFunction
 ) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -33,7 +33,7 @@ export const authenticate = async (
 export const adminMiddleware = async (
   req: Request,
   res: Response,
-  next: NextFunction,
+  next: NextFunction
 ) => {
   if (!req.user?.id) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -57,7 +57,7 @@ export const adminMiddleware = async (
       return res.status(403).json({ error: "Forbidden" });
     }
     console.warn(
-      "isAdmin middleware check not implemented for user ${userId}. Denying access.",
+      "isAdmin middleware check not implemented for user ${userId}. Denying access."
     );
     return res.status(403).json({ error: "Forbidden" });
   } catch (error) {
@@ -69,7 +69,7 @@ export const adminMiddleware = async (
 export const driverMiddleware = async (
   req: Request,
   res: Response,
-  next: NextFunction,
+  next: NextFunction
 ) => {
   if (!req.user?.id) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -101,7 +101,7 @@ export const driverMiddleware = async (
 export const passengerMiddleware = async (
   req: Request,
   res: Response,
-  next: NextFunction,
+  next: NextFunction
 ) => {
   if (!req.user?.id) {
     return res.status(401).json({ error: "Unauthorized" });

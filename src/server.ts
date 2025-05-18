@@ -31,9 +31,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/drivers", driverRoutes);
 app.use("/api/trips", tripRoutes);
 
-// Alias endpoint for legacy Flutter client URL
 app.post(
-  "api/bookings/assign-driver",
+  "/api/bookings/assign-driver",
   asyncHandler(authenticate as express.RequestHandler),
   asyncHandler(passengerMiddleware as express.RequestHandler),
   asyncHandler(assignDriver)
