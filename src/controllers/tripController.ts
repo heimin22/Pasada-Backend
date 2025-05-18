@@ -131,7 +131,7 @@ export const acceptTrip = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { bookingId } = req.params;
+  const { booking_id: bookingId } = req.params;
   const driverUserId = req.user?.id;
   if (!driverUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -213,7 +213,7 @@ export const assignDriver = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { bookingId } = req.body;
+  const { booking_id: bookingId } = req.body;
   const passengerUserId = req.user?.id;
   if (!passengerUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -268,6 +268,8 @@ export const assignDriver = async (
     }
 
     if (!drivers || drivers.length === 0) {
+      console.log(`INFO: No drivers found for booking ${bookingId}`);
+      await sendPassengerNoDriversNotification(passengerUserId, bookingId);
       res.status(404).json({ error: "No drivers found" });
       return;
     }
@@ -302,7 +304,7 @@ export const getBookingStatus = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { bookingId } = req.params;
+  const { booking_id: bookingId } = req.params;
   const userId = req.user?.id;
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -408,7 +410,7 @@ export const driverArrived = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { bookingId } = req.params;
+  const { booking_id: bookingId } = req.params;
   const driverUserId = req.user?.id;
   if (!driverUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -452,7 +454,7 @@ export const driverArrived = async (
 };
 // start of the trip
 export const startTrip = async (req: Request, res: Response): Promise<void> => {
-  const { bookingId } = req.params;
+  const { booking_id: bookingId } = req.params;
   const userId = req.user?.id;
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -575,7 +577,7 @@ export const completeTrip = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { bookingId } = req.params;
+  const { booking_id: bookingId } = req.params;
   const driverUserId = req.user?.id;
   if (!driverUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -630,7 +632,7 @@ export const cancelTrip = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { bookingId } = req.params;
+  const { booking_id: bookingId } = req.params;
   const userId = req.user?.id;
   const { reason } = req.body;
   if (!userId) {
@@ -867,5 +869,142 @@ const sendDriverNotifications = async (drivers: any[], booking: any) => {
     );
   } catch (error) {
     console.error("Error sending FCM notifications:", error);
+  }
+};
+
+// Helper to notify passenger when no drivers are found
+const sendPassengerNoDriversNotification = async (
+  userId: string,
+  bookingId: string | number
+) => {
+  try {
+    const { data: tokenData, error: tokenError } = await supabase
+      .from("push_tokens")
+      .select("token")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (tokenError || !tokenData) {
+      console.error("Error fetching passenger FCM token:", tokenError);
+      return;
+    }
+    const token = tokenData.token;
+    const messaging = getMessaging();
+    await messaging.send({
+      token,
+      notification: {
+        title: "No Drivers Available",
+        body: "Sorry, there are no available drivers for your trip request right now.",
+      },
+      data: {
+        booking_id: bookingId.toString(),
+        type: "no_drivers_found",
+      },
+      android: {
+        priority: "high",
+      },
+    });
+    console.log(`Sent no-drivers-available notification to passenger ${userId}`);
+  } catch (error) {
+    console.error("Error sending no-drivers-available notification:", error);
+  }
+};
+
+export const findAndAssignDriver = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const { booking_id: bookingId } = req.body;
+  const passengerUserId = req.user?.id;
+  
+  if (!bookingId || !passengerUserId) {
+    res.status(400).json({ error: "Missing required fields" });
+    return;
+  }
+  
+  try {
+    // Get booking details
+    const { data: booking, error: bookingError } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("booking_id", bookingId)
+      .eq("passenger_id", passengerUserId)
+      .single();
+      
+    if (bookingError || !booking) {
+      res.status(404).json({ error: "Booking not found" });
+      return;
+    }
+    
+    // Find nearest available driver using KNN
+    const { data: drivers, error: driverError } = await supabase
+      .from("driverTable")
+      .select(`
+        driver_id,
+        full_name,
+        current_location,
+        vehicle_id,
+        currentroute_id
+      `)
+      .eq("driving_status", "available")
+      .filter("current_location", "is not", "null")
+      .eq("currentroute_id", booking.route_id)
+      .order("current_location", { 
+        ascending: true,
+        nullsFirst: false
+      })
+      .limit(1);
+      
+    if (driverError) {
+      console.error("Error finding drivers:", driverError);
+      res.status(500).json({ error: "Error finding drivers" });
+      return;
+    }
+    
+    if (!drivers || drivers.length === 0) {
+      console.log(`No available drivers found for booking ${bookingId}`);
+      res.status(404).json({ error: "No available drivers found" });
+      return;
+    }
+    
+    const driver = drivers[0];
+    
+    // Assign driver to booking
+    const { error: updateError } = await supabase
+      .from("bookings")
+      .update({
+        driver_id: driver.driver_id,
+        ride_status: "assigned",
+        assigned_at: new Date().toISOString()
+      })
+      .eq("booking_id", bookingId);
+      
+    if (updateError) {
+      console.error("Error assigning driver:", updateError);
+      res.status(500).json({ error: "Error assigning driver" });
+      return;
+    }
+    
+    // Update driver status
+    const { error: driverUpdateError } = await supabase
+      .from("driverTable")
+      .update({
+        driving_status: "on_trip"
+      })
+      .eq("driver_id", driver.driver_id);
+      
+    if (driverUpdateError) {
+      console.error("Error updating driver status:", driverUpdateError);
+    }
+    
+    // Send notification to driver (you can implement this later)
+    
+    res.status(200).json({
+      message: "Driver assigned successfully",
+      driver: driver,
+      booking_id: bookingId
+    });
+  } catch (error) {
+    console.error("Error in findAndAssignDriver:", error);
+    res.status(500).json({ error: "An unexpected error occurred" });
   }
 };
