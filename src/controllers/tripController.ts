@@ -131,7 +131,7 @@ export const acceptTrip = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { booking_id: bookingId } = req.params;
+  const { tripId: bookingId } = req.params;
   const driverUserId = req.user?.id;
   if (!driverUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -213,7 +213,7 @@ export const assignDriver = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { booking_id: bookingId } = req.body;
+  const { tripId: bookingId } = req.body;
   const passengerUserId = req.user?.id;
   if (!passengerUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -304,7 +304,7 @@ export const getBookingStatus = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { booking_id: bookingId } = req.params;
+  const { tripId: bookingId } = req.params;
   const userId = req.user?.id;
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -410,7 +410,7 @@ export const driverArrived = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { booking_id: bookingId } = req.params;
+  const { tripId: bookingId } = req.params;
   const driverUserId = req.user?.id;
   if (!driverUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -454,7 +454,7 @@ export const driverArrived = async (
 };
 // start of the trip
 export const startTrip = async (req: Request, res: Response): Promise<void> => {
-  const { booking_id: bookingId } = req.params;
+  const { tripId: bookingId } = req.params;
   const userId = req.user?.id;
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -577,7 +577,7 @@ export const completeTrip = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { booking_id: bookingId } = req.params;
+  const { tripId: bookingId } = req.params;
   const driverUserId = req.user?.id;
   if (!driverUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -632,7 +632,7 @@ export const cancelTrip = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { booking_id: bookingId } = req.params;
+  const { tripId: bookingId } = req.params;
   const userId = req.user?.id;
   const { reason } = req.body;
   if (!userId) {
@@ -913,7 +913,7 @@ export const findAndAssignDriver = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { booking_id: bookingId } = req.body;
+  const { tripId: bookingId } = req.body;
   const passengerUserId = req.user?.id;
   
   if (!bookingId || !passengerUserId) {
@@ -1001,7 +1001,7 @@ export const findAndAssignDriver = async (
     res.status(200).json({
       message: "Driver assigned successfully",
       driver: driver,
-      booking_id: bookingId
+      tripId: bookingId
     });
   } catch (error) {
     console.error("Error in findAndAssignDriver:", error);
