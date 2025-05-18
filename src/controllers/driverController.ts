@@ -2,9 +2,9 @@ import { Request, Response } from "express";
 import { supabase } from "../utils/supabaseClient";
 export const updateDriverLocation = async (req: Request, res: Response) => {
   const { latitude, longitude } = req.body;
-  const driverId = req.params.id;
+  const driverId = req.user?.id;
 
-  if (!driverId || !latitude || !longitude) {
+  if (!driverId || latitude === undefined || longitude === undefined) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
@@ -14,7 +14,7 @@ export const updateDriverLocation = async (req: Request, res: Response) => {
       current_location: `POINT(${longitude} ${latitude})`,
       last_seen: new Date().toISOString(),
     })
-    .eq("user_id", driverId);
+    .eq("driver_id", driverId);
   if (error) {
     console.error("Error updating driver location:", error);
     return res.status(500).json({ error: "Internal server error" });
@@ -22,8 +22,13 @@ export const updateDriverLocation = async (req: Request, res: Response) => {
   res.status(200).json({ message: "Location updated successfully" });
 };
 export const updateDriverAvailability = async (req: Request, res: Response) => {
-  const { isAvailable } = req.body;
-  const driverId = req.params.id;
+  let isAvailable: boolean | undefined;
+  if (req.params.isAvailable !== undefined) {
+    isAvailable = req.params.isAvailable === 'true';
+  } else {
+    isAvailable = req.body.isAvailable;
+  }
+  const driverId = req.user?.id;
 
   if (!driverId || isAvailable === undefined) {
     return res.status(400).json({ error: "Missing required fields" });
@@ -58,7 +63,7 @@ export const updateDriverAvailability = async (req: Request, res: Response) => {
       is_available: isAvailable,
       last_seen: new Date().toISOString(),
     })
-    .eq("user_id", driverId);
+    .eq("driver_id", driverId);
 
   if (error) {
     console.error("Error updating driver availability:", error);

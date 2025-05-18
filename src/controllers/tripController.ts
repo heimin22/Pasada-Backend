@@ -62,12 +62,12 @@ export const requestTrip = async (
         )
       `
       )
-      .eq("is_available", true) // online
+      .eq("driving_status", "Online")
       .eq("vehicle.route_id", route_trip) // same route
       .filter(
         "current_location",
         "st_dwithin",
-        `(${origin_longitude},${origin_latitude},300)`
+        `(${origin_longitude},${origin_latitude},${SEARCH_RADIUS_METERS})`
       ) // within 300 m
       .order("current_location", { ascending: true }) // KNN sort
       .limit(MAX_DRIVERS_TO_FIND);
@@ -177,7 +177,7 @@ export const acceptTrip = async (
         status: "accepted",
         driver_id: driverUserId,
       })
-      .eq("id", bookingId)
+      .eq("booking_id", bookingId)
       .eq("status", "requested")
       .select()
       .single();
@@ -192,7 +192,8 @@ export const acceptTrip = async (
     const { error: driverStatusError } = await supabase
       .from("driverTable")
       .update({
-        is_available: false,
+        driving_status: "Offline",
+        last_online: new Date().toISOString()
       })
       .eq("driver_id", driverUserId);
     if (driverStatusError) {
@@ -213,7 +214,7 @@ export const assignDriver = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { tripId: bookingId } = req.body;
+  const { tripId: bookingId } = req.params;
   const passengerUserId = req.user?.id;
   if (!passengerUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -228,7 +229,7 @@ export const assignDriver = async (
     const { data: booking, error: bookingError } = await supabase
       .from("bookings")
       .select("*")
-      .eq("id", bookingId)
+      .eq("booking_id", bookingId)
       .eq("passenger_id", passengerUserId)
       .single();
 
@@ -251,12 +252,12 @@ export const assignDriver = async (
         )
       `
       )
-      .eq("is_available", true)
-      .eq("vehicle.route_id", booking.currentroute_id)
+      .eq("driving_status", "Online")
+      .eq("vehicle.route_id", booking.route_id)
       .filter(
         "current_location",
         "st_dwithin",
-        `(${booking.origin_location.x},${booking.origin_location.y},300)`
+        `(${booking.origin_location.x},${booking.origin_location.y},${SEARCH_RADIUS_METERS})`
       )
       .order("current_location", { ascending: true })
       .limit(MAX_DRIVERS_TO_FIND);
@@ -278,7 +279,7 @@ export const assignDriver = async (
     const { error: updateError } = await supabase
       .from("bookings")
       .update({ status: "searching" })
-      .eq("id", bookingId);
+      .eq("booking_id", bookingId);
 
     if (updateError) {
       console.error("Error updating booking status:", updateError);
@@ -315,7 +316,7 @@ export const getBookingStatus = async (
     const { data: booking, error } = await supabase
       .from("bookings")
       .select("*, driver_id")
-      .eq("id", bookingId)
+      .eq("booking_id", bookingId)
       .or(`passenger_id.eq.${userId},driver_id.eq.${userId}`)
       .single();
 
@@ -326,7 +327,7 @@ export const getBookingStatus = async (
     }
 
     res.status(200).json({
-      id: booking.id,
+      id: booking.booking_id,
       status: booking.status,
       driver_id: booking.driver_id,
       // Include other relevant fields
@@ -426,7 +427,7 @@ export const driverArrived = async (
       .update({
         status: "driver_arrived",
       })
-      .eq("id", bookingId)
+      .eq("booking_id", bookingId)
       .eq("driver_id", driverUserId)
       .eq("status", "accepted")
       .select()
@@ -503,7 +504,7 @@ export const startTrip = async (req: Request, res: Response): Promise<void> => {
         status: "ongoing",
         started_at: new Date().toISOString(),
       })
-      .eq("id", bookingId)
+      .eq("booking_id", bookingId)
       .in("status", ["accepted", "driver_arrived"])
       .select()
       .single();
@@ -595,7 +596,7 @@ export const completeTrip = async (
         status: "completed",
         completed_at: new Date().toISOString(),
       })
-      .eq("id", bookingId)
+      .eq("booking_id", bookingId)
       .eq("driver_id", driverUserId)
       .eq("status", "ongoing")
       .select()
@@ -609,7 +610,8 @@ export const completeTrip = async (
     const { error: driverStatusError } = await supabase
       .from("driverTable")
       .update({
-        is_available: true,
+        driving_status: "Offline",
+        last_online: new Date().toISOString()
       })
       .eq("driver_id", driverUserId);
     if (driverStatusError) {
@@ -647,7 +649,7 @@ export const cancelTrip = async (
     const { data: booking, error: fetchError } = await supabase
       .from("bookings")
       .select("status, passenger_id, driver_id, id")
-      .eq("id", bookingId)
+      .eq("booking_id", bookingId)
       .maybeSingle();
     if (fetchError || !booking) {
       console.error("Error fetching booking for cancellation:", fetchError);
@@ -684,7 +686,7 @@ export const cancelTrip = async (
         cancelled_at: new Date().toISOString(),
         cancellation_reason: reason,
       })
-      .eq("id", bookingId)
+      .eq("booking_id", bookingId)
       .in("status", cancellableStates) // Only cancel if in cancellable state
       .select()
       .single();
@@ -697,7 +699,7 @@ export const cancelTrip = async (
     if (cancelledBooking.driver_id) {
       const { error: driverStatusError } = await supabase
         .from("driverTable")
-        .update({ is_available: true })
+        .update({ driving_status: "Offline" })
         .eq("driver_id", cancelledBooking.driver_id);
       if (driverStatusError) {
         // Log this error but don't fail the cancellation for the user
@@ -735,7 +737,7 @@ export const getTripDetails = async (
     const { data: trip, error } = await supabase
       .from("bookings")
       .select("*")
-      .eq("id", tripId)
+      .eq("booking_id", tripId)
       .or(`passenger_id.eq.${userId},driver_id.eq.${userId}`)
       .maybeSingle();
     if (error || !trip) {
@@ -849,7 +851,7 @@ const sendDriverNotifications = async (drivers: any[], booking: any) => {
           body: `New trip request from ${booking.origin_address} to ${booking.destination_address}`,
         },
         data: {
-          booking_id: booking.id.toString(),
+          booking_id: booking.booking_id.toString(),
           type: "new_trip_request",
           origin: booking.origin_address,
           destination: booking.destination_address,
@@ -945,7 +947,7 @@ export const findAndAssignDriver = async (
         vehicle_id,
         currentroute_id
       `)
-      .eq("driving_status", "available")
+      .eq("driving_status", "Online")
       .filter("current_location", "is not", "null")
       .eq("currentroute_id", booking.route_id)
       .order("current_location", { 
@@ -988,7 +990,8 @@ export const findAndAssignDriver = async (
     const { error: driverUpdateError } = await supabase
       .from("driverTable")
       .update({
-        driving_status: "on_trip"
+        driving_status: "Driving",
+        last_online: new Date()
       })
       .eq("driver_id", driver.driver_id);
       
