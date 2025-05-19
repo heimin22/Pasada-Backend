@@ -16,7 +16,7 @@ if (!admin.apps.length) {
 */
 
 const SEARCH_RADIUS_METERS = 1000;
-const MAX_DRIVERS_TO_FIND = 20;
+const MAX_DRIVERS_TO_FIND = 32;
 export const requestTrip = async (
   req: Request,
   res: Response
@@ -24,34 +24,42 @@ export const requestTrip = async (
   const {
     origin_latitude,
     origin_longitude,
-    origin_address,
+    pickup_address,
     destination_latitude,
     destination_longitude,
-    destination_address,
+    dropoff_address,
     route_trip,
     fare,
     payment_method,
   } = req.body;
+
+  // Debug: log incoming request payload
+  console.log('requestTrip payload:', JSON.stringify(req.body));
+
   const passengerUserId = req.user?.id;
   if (!passengerUserId) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  if (
-    typeof origin_latitude !== "number" ||
-    typeof origin_longitude !== "number" ||
-    typeof destination_latitude !== "number" ||
-    typeof destination_longitude !== "number" ||
-    !origin_address ||
-    !destination_address
-  ) {
-    res.status(400).json({ error: "Missing required fields" });
+  const missingFields: string[] = [];
+  if (typeof origin_latitude !== 'number') missingFields.push('origin_latitude');
+  if (typeof origin_longitude !== 'number') missingFields.push('origin_longitude');
+  if (typeof destination_latitude !== 'number') missingFields.push('destination_latitude');
+  if (typeof destination_longitude !== 'number') missingFields.push('destination_longitude');
+  if (!pickup_address) missingFields.push('pickup_address');
+  if (!dropoff_address) missingFields.push('dropoff_address');
+  if (typeof route_trip !== 'number' && typeof route_trip !== 'string') missingFields.push('route_trip');
+  if (typeof fare !== 'number') missingFields.push('fare');
+  if (!payment_method) missingFields.push('payment_method');
+  if (missingFields.length > 0) {
+    res.status(400).json({ error: 'Missing required fields', missingFields });
     return;
   }
   try {
     const pickupLng = origin_longitude;
     const pickupLat = origin_latitude;
     // find nearby drivers via Postgres RPC
+    const routeTripId = typeof route_trip === 'string' ? parseInt(route_trip, 10) : route_trip;
     const { data: drivers, error: searchError } = await supabase.rpc(
       "find_available_drivers_for_route",
       {
@@ -59,7 +67,7 @@ export const requestTrip = async (
         passenger_lat: pickupLat,
         search_radius_m: SEARCH_RADIUS_METERS,
         max_drivers: MAX_DRIVERS_TO_FIND,
-        p_route_id: route_trip
+        p_route_id: routeTripId
       }
     );
     if (searchError) {
@@ -72,21 +80,21 @@ export const requestTrip = async (
       return;
     }
     // create a trip request
-    const originLocationWKT = `POINT(${origin_longitude} ${origin_latitude})`;
-    const destinationLocationWKT = `POINT(${destination_longitude} ${destination_latitude})`;
     const { data: newBooking, error: bookingError } = await supabase
       .from("bookings")
       .insert({
         passenger_id: passengerUserId,
         ride_status: "requested",
-        origin_location: originLocationWKT,
-        origin_address: origin_address,
-        destination_location: destinationLocationWKT,
-        destination_address: destination_address,
+        pickup_lat: origin_latitude,
+        pickup_lng: origin_longitude,
+        pickup_address: pickup_address,
+        dropoff_lat: destination_latitude,
+        dropoff_lng: destination_longitude,
+        dropoff_address: dropoff_address,
         fare: fare,
         payment_method: payment_method,
         created_at: new Date().toISOString(),
-        route_id: route_trip,
+        route_id: routeTripId,
       })
       .select()
       .single();
@@ -95,23 +103,40 @@ export const requestTrip = async (
       res.status(500).json({ error: "Error creating trip request" });
       return;
     }
-    // respond to passenger with booking details
-    // this should return the newly created booking details
-    // the frontend should use Realtime to get updates on the booking status
+    // automatically assign the closest driver
+    const assignedDriver = drivers[0];
+    const { data: updatedBooking, error: assignmentError } = await supabase
+      .from("bookings")
+      .update({
+        driver_id: assignedDriver.driver_id,
+        ride_status: "requested",
+        assigned_at: new Date().toISOString(),
+      })
+      .eq("booking_id", newBooking.booking_id)
+      .select()
+      .single();
+    if (assignmentError || !updatedBooking) {
+      console.error("Error assigning driver to booking:", assignmentError);
+      res.status(500).json({ error: "Error assigning driver" });
+      return;
+    }
+    // update driver status to unavailable
+    const { error: driverStatusError } = await supabase
+      .from("driverTable")
+      .update({
+        driving_status: "Driving",
+        last_online: new Date().toISOString(),
+      })
+      .eq("driver_id", assignedDriver.driver_id);
+    if (driverStatusError) {
+      console.error("Error updating driver status:", driverStatusError);
+    }
+    // respond with booking details and assigned driver
     res.status(201).json({
-      message: "Trip requested successfully. Searching for drivers...",
-      booking: newBooking,
-      nearby_drivers: drivers,
+      message: "Trip requested and driver assigned successfully",
+      booking: updatedBooking,
+      driver: assignedDriver,
     });
-    // Notify drivers
-    console.log(
-      `INFO: Booking ${newBooking.booking_id} requested by passenger ${passengerUserId}`
-    );
-    console.log(
-      `INFO: Searching for drivers within ${SEARCH_RADIUS_METERS} meters`
-    );
-    // send notifications to drivers
-    // await sendDriverNotifications(drivers, newBooking);
   } catch (error) {
     console.error("Error requesting trip:", error);
     res.status(500).json({ error: "Error requesting trip" });

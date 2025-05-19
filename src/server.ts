@@ -36,7 +36,7 @@ app.post(
   "/api/bookings/assign-driver",
   asyncHandler(authenticate as express.RequestHandler),
   asyncHandler(passengerMiddleware as express.RequestHandler),
-  asyncHandler(assignDriver)
+  asyncHandler(requestTrip)
 );
 
 app.post(
