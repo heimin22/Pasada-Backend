@@ -12,7 +12,7 @@ export const updateDriverLocation = async (req: Request, res: Response) => {
     .from("driverTable")
     .update({
       current_location: `POINT(${longitude} ${latitude})`,
-      last_seen: new Date().toISOString(),
+      last_online: new Date().toISOString(),
     })
     .eq("driver_id", driverId);
   if (error) {
@@ -23,8 +23,8 @@ export const updateDriverLocation = async (req: Request, res: Response) => {
 };
 export const updateDriverAvailability = async (req: Request, res: Response) => {
   let isAvailable: boolean | undefined;
-  if (req.params.isAvailable !== undefined) {
-    isAvailable = req.params.isAvailable === 'true';
+  if (req.body.isAvailable !== undefined) {
+    isAvailable = req.body.isAvailable === 'true';
   } else {
     isAvailable = req.body.isAvailable;
   }
@@ -41,9 +41,9 @@ export const updateDriverAvailability = async (req: Request, res: Response) => {
   if (isAvailable === true) {
     const { data: activeTrip, error: tripError } = await supabase
       .from("bookings")
-      .select("id")
+      .select("booking_id")
       .eq("driver_id", driverId)
-      .in("status", ["accepted", "driver_arrived", "ongoing"])
+      .in("ride_status", ["ongoing"])
       .maybeSingle();
 
     if (tripError) {
@@ -61,7 +61,7 @@ export const updateDriverAvailability = async (req: Request, res: Response) => {
     .from("driverTable")
     .update({
       is_available: isAvailable,
-      last_seen: new Date().toISOString(),
+      last_online: new Date().toISOString(),
     })
     .eq("driver_id", driverId);
 

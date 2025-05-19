@@ -131,7 +131,7 @@ export const acceptTrip = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { tripId: bookingId } = req.params;
+  const bookingId = req.body.booking_id;
   const driverUserId = req.user?.id;
   if (!driverUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -192,7 +192,7 @@ export const acceptTrip = async (
     const { error: driverStatusError } = await supabase
       .from("driverTable")
       .update({
-        driving_status: "Offline",
+        driving_status: "Driving",
         last_online: new Date().toISOString()
       })
       .eq("driver_id", driverUserId);
