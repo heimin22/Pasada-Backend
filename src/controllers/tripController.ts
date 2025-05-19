@@ -1,8 +1,9 @@
 import { Request, Response } from "express";
 import { supabase } from "../utils/supabaseClient";
-import admin from "firebase-admin";
-import { getMessaging } from "firebase-admin/messaging";
+// import admin from "firebase-admin";
+// import { getMessaging } from "firebase-admin/messaging";
 
+/*
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -12,6 +13,7 @@ if (!admin.apps.length) {
     }),
   });
 }
+*/
 
 const SEARCH_RADIUS_METERS = 1000;
 const MAX_DRIVERS_TO_FIND = 20;
@@ -47,30 +49,19 @@ export const requestTrip = async (
     return;
   }
   try {
-    // find nearby drivers that match the route
-    const { data: drivers, error: searchError } = await supabase
-      .from("driverTable")
-      .select(
-        `
-        driver_id,
-        current_location,
-        vehicle:vehicle_id (
-          passenger_capacity,
-          sitting_passenger,
-          standing_passenger,
-          route_id
-        )
-      `
-      )
-      .eq("driving_status", "Driving")
-      .eq("currentroute_id", route_trip)
-      .filter(
-        "current_location",
-        "st_dwithin",
-        `(${origin_longitude},${origin_latitude},${SEARCH_RADIUS_METERS})`
-      ) // within 300 m
-      .order("current_location", { ascending: true }) // KNN sort
-      .limit(MAX_DRIVERS_TO_FIND);
+    const pickupLng = origin_longitude;
+    const pickupLat = origin_latitude;
+    // find nearby drivers via Postgres RPC
+    const { data: drivers, error: searchError } = await supabase.rpc(
+      "find_available_drivers_for_route",
+      {
+        passenger_lon: pickupLng,
+        passenger_lat: pickupLat,
+        search_radius_m: SEARCH_RADIUS_METERS,
+        max_drivers: MAX_DRIVERS_TO_FIND,
+        p_route_id: route_trip
+      }
+    );
     if (searchError) {
       console.error("Error finding drivers:", searchError);
       res.status(500).json({ error: "Error finding drivers" });
@@ -114,13 +105,13 @@ export const requestTrip = async (
     });
     // Notify drivers
     console.log(
-      `INFO: Booking ${newBooking.id} requested by passenger ${passengerUserId}`
+      `INFO: Booking ${newBooking.booking_id} requested by passenger ${passengerUserId}`
     );
     console.log(
       `INFO: Searching for drivers within ${SEARCH_RADIUS_METERS} meters`
     );
     // send notifications to drivers
-    await sendDriverNotifications(drivers, newBooking);
+    // await sendDriverNotifications(drivers, newBooking);
   } catch (error) {
     console.error("Error requesting trip:", error);
     res.status(500).json({ error: "Error requesting trip" });
@@ -241,29 +232,16 @@ export const assignDriver = async (
     const pickupLng = booking.pickup_lng;
     const pickupLat = booking.pickup_lat;
 
-    const { data: drivers, error: searchError } = await supabase
-      .from("driverTable")
-      .select(
-        `
-        driver_id,
-        current_location,
-        vehicle:vehicle_id (
-          passenger_capacity,
-          sitting_passenger,
-          standing_passenger,
-          route_id
-        )
-      `
-      )
-      .eq("driving_status", "Driving")
-      .eq("currentroute_id", booking.currentroute_id)
-      .filter(
-        "current_location",
-        "st_dwithin",
-        `(${pickupLng},${pickupLat},${SEARCH_RADIUS_METERS})`
-      )
-      .order("current_location", { ascending: true })
-      .limit(MAX_DRIVERS_TO_FIND);
+    const { data: drivers, error: searchError } = await supabase.rpc(
+      "find_available_drivers_for_route",
+      {
+        passenger_lon: pickupLng,
+        passenger_lat: pickupLat,
+        search_radius_m: SEARCH_RADIUS_METERS,
+        max_drivers: MAX_DRIVERS_TO_FIND,
+        p_route_id: booking.route_id,
+      }
+    );
 
     if (searchError) {
       console.error("Error finding drivers:", searchError);
@@ -273,7 +251,7 @@ export const assignDriver = async (
 
     if (!drivers || drivers.length === 0) {
       console.log(`INFO: No drivers found for booking ${bookingId}`);
-      await sendPassengerNoDriversNotification(passengerUserId, bookingId);
+      // await sendPassengerNoDriversNotification(passengerUserId, bookingId);
       res.status(404).json({ error: "No drivers found" });
       return;
     }
@@ -291,7 +269,7 @@ export const assignDriver = async (
     }
 
     // Notify drivers
-    await sendDriverNotifications(drivers, booking);
+    // await sendDriverNotifications(drivers, booking);
 
     res.status(200).json({
       message: "Driver assignment initiated",
@@ -308,7 +286,12 @@ export const getBookingStatus = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { tripId: bookingId } = req.params;
+  const { tripId } = req.params;
+  const bookingId = parseInt(tripId, 10);
+  if (isNaN(bookingId)) {
+    res.status(400).json({ error: "Invalid trip ID" });
+    return;
+  }
   const userId = req.user?.id;
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -318,14 +301,17 @@ export const getBookingStatus = async (
   try {
     const { data: booking, error } = await supabase
       .from("bookings")
-      .select("*, driver_id")
+      .select("*, passenger_id, driver_id")
       .eq("booking_id", bookingId)
-      .or(`passenger_id.eq.${userId},driver_id.eq.${userId}`)
       .single();
 
     if (error || !booking) {
       console.error("Error fetching booking status:", error);
-      res.status(404).json({ error: "Booking not found or unauthorized" });
+      res.status(404).json({ error: "Booking not found" });
+      return;
+    }
+    if (booking.passenger_id !== userId && booking.driver_id !== userId) {
+      res.status(403).json({ error: "Unauthorized to view booking status" });
       return;
     }
 
@@ -816,6 +802,7 @@ export const getDriverTripHistory = async (
   }
 };
 
+/*
 const sendDriverNotifications = async (drivers: any[], booking: any) => {
   try {
     // Get driver IDs
@@ -866,17 +853,15 @@ const sendDriverNotifications = async (drivers: any[], booking: any) => {
       });
     });
 
-    await Promise.all(notificationPromises.filter(Boolean));
-    console.log(
-      `Sent notifications to ${
-        notificationPromises.filter(Boolean).length
-      } drivers`
-    );
+    await Promise.all(notificationPromises);
+    console.log(`Notifications sent to ${drivers.length} drivers`);
   } catch (error) {
-    console.error("Error sending FCM notifications:", error);
+    console.error("Error sending driver notifications:", error);
   }
 };
+*/
 
+/*
 // Helper to notify passenger when no drivers are found
 const sendPassengerNoDriversNotification = async (
   userId: string,
@@ -908,11 +893,11 @@ const sendPassengerNoDriversNotification = async (
         priority: "high",
       },
     });
-    console.log(`Sent no-drivers-available notification to passenger ${userId}`);
   } catch (error) {
-    console.error("Error sending no-drivers-available notification:", error);
+    console.error("Error sending passenger notification:", error);
   }
 };
+*/
 
 export const findAndAssignDriver = async (
   req: Request,
@@ -940,24 +925,17 @@ export const findAndAssignDriver = async (
       return;
     }
     
-    // Find nearest available driver using KNN
-    const { data: drivers, error: driverError } = await supabase
-      .from("driverTable")
-      .select(`
-        driver_id,
-        full_name,
-        current_location,
-        vehicle_id,
-        currentroute_id
-      `)
-      .eq("driving_status", "Driving")
-      .filter("current_location", "is not", "null")
-      .eq("currentroute_id", booking.route_id)
-      .order("current_location", { 
-        ascending: true,
-        nullsFirst: false
-      })
-      .limit(1);
+    // Find nearest available driver using the find_available_drivers_for_route RPC
+    const { data: drivers, error: driverError } = await supabase.rpc(
+      "find_available_drivers_for_route",
+      {
+        passenger_lon: booking.pickup_lng,
+        passenger_lat: booking.pickup_lat,
+        search_radius_m: SEARCH_RADIUS_METERS,
+        max_drivers: 1,
+        p_route_id: booking.route_id,
+      }
+    );
       
     if (driverError) {
       console.error("Error finding drivers:", driverError);

@@ -5,8 +5,9 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { setupRealtimeSubscriptions } from "./utils/realtimeSubscriptions";
 import asyncHandler from "express-async-handler";
-import { authenticate, passengerMiddleware } from "./middleware/authMiddleware";
-import { assignDriver, findAndAssignDriver } from "./controllers/tripController";
+import { authenticate, passengerMiddleware, driverMiddleware } from "./middleware/authMiddleware";
+import { assignDriver, findAndAssignDriver, requestTrip } from "./controllers/tripController";
+import { updateDriverAvailability, updateDriverLocation } from "./controllers/driverController";
 
 dotenv.config();
 console.log("This is the Pasada Backend Server");
@@ -38,14 +39,6 @@ app.post(
   asyncHandler(assignDriver)
 );
 
-// Keep the existing endpoint and add this one:
-app.post(
-  "/api/bookings/assign-driver",
-  asyncHandler(authenticate as express.RequestHandler),
-  asyncHandler(passengerMiddleware as express.RequestHandler),
-  asyncHandler(assignDriver)
-);
-
 app.post(
   "/api/bookings/find-assign-driver",
   asyncHandler(authenticate as express.RequestHandler),
@@ -54,10 +47,17 @@ app.post(
 );
 
 app.post(
-  "/bookings/find-assign-driver",
+  "/api/drivers/update-availability",
   asyncHandler(authenticate as express.RequestHandler),
-  asyncHandler(passengerMiddleware as express.RequestHandler),
-  asyncHandler(findAndAssignDriver)
+  asyncHandler(driverMiddleware as express.RequestHandler),
+  asyncHandler(updateDriverAvailability)
+);
+
+app.post(
+  "/api/drivers/update-driver-location",
+  asyncHandler(authenticate as express.RequestHandler),
+  asyncHandler(driverMiddleware as express.RequestHandler),
+  asyncHandler(updateDriverLocation)
 );
 
 // Error handling middleware
@@ -79,7 +79,7 @@ app.get("/api/test", (_req: Request, res: Response) => {
   });
 });
 
-app.get("/health", (_req: Request, res: Response) => {
+app.get("/api/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
 });
 
@@ -90,11 +90,11 @@ app.get("/api/test/trips", (_req: Request, res: Response) => {
   });
 });
 
-app.get("/test-endpoint", (_req: Request, res: Response) => {
+app.get("/api/test-endpoint", (_req: Request, res: Response) => {
   res.json({ message: "Test endpoint is working" });
 });
 
-app.get("/bookings/test", (_req: Request, res: Response) => {
+app.get("/api/bookings/test", (_req: Request, res: Response) => {
   res.json({ message: "Bookings path is accessible" });
 });
 

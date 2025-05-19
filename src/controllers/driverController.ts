@@ -1,11 +1,12 @@
 import { Request, Response } from "express";
 import { supabase } from "../utils/supabaseClient";
-export const updateDriverLocation = async (req: Request, res: Response) => {
+export const updateDriverLocation = async (req: Request, res: Response): Promise<void> => {
   const { latitude, longitude } = req.body;
   const driverId = req.user?.id;
 
   if (!driverId || latitude === undefined || longitude === undefined) {
-    return res.status(400).json({ error: "Missing required fields" });
+    res.status(400).json({ error: "Missing required fields" });
+    return;
   }
 
   const { error } = await supabase
@@ -17,11 +18,12 @@ export const updateDriverLocation = async (req: Request, res: Response) => {
     .eq("driver_id", driverId);
   if (error) {
     console.error("Error updating driver location:", error);
-    return res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
+    return;
   }
   res.status(200).json({ message: "Location updated successfully" });
 };
-export const updateDriverAvailability = async (req: Request, res: Response) => {
+export const updateDriverAvailability = async (req: Request, res: Response): Promise<void> => {
   let isAvailable: boolean | undefined;
   if (req.body.isAvailable !== undefined) {
     isAvailable = req.body.isAvailable === 'true';
@@ -31,10 +33,12 @@ export const updateDriverAvailability = async (req: Request, res: Response) => {
   const driverId = req.user?.id;
 
   if (!driverId || isAvailable === undefined) {
-    return res.status(400).json({ error: "Missing required fields" });
+    res.status(400).json({ error: "Missing required fields" });
+    return;
   }
   if (typeof isAvailable !== "boolean") {
-    return res.status(400).json({ error: "Invalid availability value" });
+    res.status(400).json({ error: "Invalid availability value" });
+    return;
   }
 
   // prevent unavailable drivers on active trips from becoming available
@@ -48,12 +52,14 @@ export const updateDriverAvailability = async (req: Request, res: Response) => {
 
     if (tripError) {
       console.error("Error checking active trips:", tripError);
-      return res.status(500).json({ error: "Internal server error" });
+      res.status(500).json({ error: "Internal server error" });
+      return;
     }
     if (activeTrip) {
-      return res.status(400).json({
+      res.status(400).json({
         error: "Cannot set available while on an active trip",
       });
+      return;
     }
   }
 
@@ -67,7 +73,8 @@ export const updateDriverAvailability = async (req: Request, res: Response) => {
 
   if (error) {
     console.error("Error updating driver availability:", error);
-    return res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
+    return;
   }
   res.status(200).json({ message: "Availability updated successfully" });
 };
