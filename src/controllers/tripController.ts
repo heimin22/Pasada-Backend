@@ -17,6 +17,10 @@ if (!admin.apps.length) {
 
 const SEARCH_RADIUS_METERS = 1000;
 const MAX_DRIVERS_TO_FIND = 32;
+/**
+ * KEEP: Core function for requesting a new trip
+ * Handles passenger trip requests, finds nearby drivers, and assigns the closest one
+ */
 export const requestTrip = async (
   req: Request,
   res: Response
@@ -58,25 +62,80 @@ export const requestTrip = async (
   try {
     const pickupLng = origin_longitude;
     const pickupLat = origin_latitude;
-    // find nearby drivers via Postgres RPC
-    const routeTripId = typeof route_trip === 'string' ? parseInt(route_trip, 10) : route_trip;
-    const { data: drivers, error: searchError } = await supabase.rpc(
-      "find_available_drivers_for_route",
-      {
-        passenger_lon: pickupLng,
-        passenger_lat: pickupLat,
-        search_radius_m: SEARCH_RADIUS_METERS,
+    // find nearby drivers via Postgres RPC with auto-expand fallback
+    const routeTripId = typeof route_trip === 'number' ? route_trip : parseInt(route_trip, 10);
+    const radiusMultipliers = [1, 2, 3, 4];
+    let drivers;
+    let searchError;
+    let usedRadius = SEARCH_RADIUS_METERS;
+    for (const multiplier of radiusMultipliers) {
+      const radius = SEARCH_RADIUS_METERS * multiplier;
+      // search purely by passenger location, ignoring route
+      const result = await supabase.rpc("find_available_drivers_for_route", {
         max_drivers: MAX_DRIVERS_TO_FIND,
-        p_route_id: routeTripId
+        passenger_lat: pickupLat,
+        passenger_lon: pickupLng,
+        p_route_id: routeTripId,
+        search_radius_m: radius,
+      });
+      drivers = result.data;
+      searchError = result.error;
+      console.log(`Searching for drivers within ${radius}m:`, drivers?.length || 0);
+      if (searchError) {
+        console.error("Error finding drivers:", searchError);
+        break;
       }
-    );
+      if (drivers && drivers.length > 0) {
+        usedRadius = radius;
+        break;
+      }
+    }
     if (searchError) {
-      console.error("Error finding drivers:", searchError);
       res.status(500).json({ error: "Error finding drivers" });
       return;
     }
     if (!drivers || drivers.length === 0) {
-      res.status(404).json({ error: "No drivers found" });
+      console.log("No drivers found, performing diagnostics");
+      // Count total registered drivers
+      const { data: totalDrivers, error: totalDriversError } = await supabaseAdmin
+        .from("driverTable")
+        .select("driver_id");
+      const totalDriversCount = Array.isArray(totalDrivers) ? totalDrivers.length : 0;
+      if (totalDriversError) {
+        console.error("Error fetching total drivers count:", totalDriversError);
+      }
+      // Count busy drivers with accepted or ongoing trips
+      const { data: busyBookings, error: busyError } = await supabaseAdmin
+        .from("bookings")
+        .select("driver_id")
+        .in("ride_status", ["accepted", "ongoing"]);
+      if (busyError) {
+        console.error("Error fetching busy bookings:", busyError);
+      }
+      const busyDriverIds = Array.isArray(busyBookings)
+        ? busyBookings.map((b) => b.driver_id)
+        : [];
+      const uniqueBusyDriversCount = new Set(busyDriverIds).size;
+      // Compute available drivers
+      const availableDriversCount = totalDriversCount - uniqueBusyDriversCount;
+      // Determine reason why no driver was found
+      let reason = "";
+      if (totalDriversCount === 0) {
+        reason = "No registered drivers in the system";
+      } else if (availableDriversCount === 0) {
+        reason = "All drivers are currently busy";
+      } else {
+        reason = "Drivers available, but none within the search radius for the specified route";
+      }
+      res.status(404).json({
+        error: "No drivers found",
+        reason,
+        stats: {
+          totalDrivers: totalDriversCount,
+          busyDrivers: uniqueBusyDriversCount,
+          availableDrivers: availableDriversCount,
+        },
+      });
       return;
     }
     // create a trip request
@@ -120,17 +179,6 @@ export const requestTrip = async (
       res.status(500).json({ error: "Error assigning driver" });
       return;
     }
-    // update driver status to unavailable
-    const { error: driverStatusError } = await supabaseAdmin
-      .from("driverTable")
-      .update({
-        driving_status: "Driving",
-        last_online: new Date().toISOString(),
-      })
-      .eq("driver_id", assignedDriver.driver_id);
-    if (driverStatusError) {
-      console.error("Error updating driver status:", driverStatusError);
-    }
     // respond with booking details and assigned driver
     res.status(201).json({
       message: "Trip requested and driver assigned successfully",
@@ -143,134 +191,18 @@ export const requestTrip = async (
     return;
   }
 };
-export const acceptTrip = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const bookingId = req.body.booking_id;
-  const driverUserId = req.user?.id;
-  if (!driverUserId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  if (!bookingId || typeof bookingId !== "string") {
-    res.status(400).json({ error: "Missing booking ID" });
-    return;
-  }
-  try {
-    // transaction to ensure atomicity
-    const { data: acceptedBookingData, error: rpcError } = await supabase.rpc(
-      "accept_bookings",
-      {
-        booking_id_to_accept: bookingId,
-        driver_id_to_accept: driverUserId,
-      }
-    );
-    if (rpcError) {
-      console.error("Error accepting trip:", rpcError);
-      // check error message for specific reasons
-      if (
-        rpcError.message.includes("Booking not found") ||
-        rpcError.message.includes("Booking already accepted")
-      ) {
-        res.status(409).json({
-          message: "Trip could not be accepted (already accepted or not found)",
-        });
-        return;
-      }
-      res.status(500).json({ error: "Error accepting trip" });
-      return;
-    }
-    const acceptedBooking = acceptedBookingData?.[0];
-    if (!acceptedBooking) {
-      res.status(409).json({ error: "Booking not found" });
-      return;
-    }
-    // update the booking status and assign the driver to the booking
-    const { data: updatedBooking, error: updateError } = await supabase
-      .from("bookings")
-      .update({
-        ride_status: "accepted",
-        driver_id: driverUserId,
-      })
-      .eq("booking_id", bookingId)
-      .eq("ride_status", "accepted")
-      .select()
-      .single();
-    if (updateError || !updatedBooking) {
-      console.error("Error updating booking:", updateError);
-      res.status(409).json({
-        error: "Trip could not be accepted (already accepted or not found)",
-      });
-      return;
-    }
-    // set the driver status to unavailable
-    const { error: driverStatusError } = await supabaseAdmin
-      .from("driverTable")
-      .update({
-        driving_status: "Driving",
-        last_online: new Date().toISOString()
-      })
-      .eq("driver_id", driverUserId);
-    if (driverStatusError) {
-      console.error("Error updating driver status:", driverStatusError);
-      res.status(500).json({ error: "Error finalizing trip acceptance" });
-      return;
-    }
-    res
-      .status(200)
-      .json({ message: "Trip accepted successfully", booking: updatedBooking });
-  } catch (error) {
-    console.error("Error accepting trip:", error);
-    res.status(500).json({ error: "Error accepting trip" });
-    return;
-  }
-};
-export const getBookingStatus = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const { tripId } = req.params;
-  const bookingId = parseInt(tripId, 10);
-  if (isNaN(bookingId)) {
-    res.status(400).json({ error: "Invalid trip ID" });
-    return;
-  }
-  const userId = req.user?.id;
-  if (!userId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  try {
-    const { data: booking, error } = await supabase
-      .from("bookings")
-      .select("*, passenger_id, driver_id")
-      .eq("booking_id", bookingId)
-      .single();
-
-    if (error || !booking) {
-      console.error("Error fetching booking status:", error);
-      res.status(404).json({ error: "Booking not found" });
-      return;
-    }
-    if (booking.passenger_id !== userId && booking.driver_id !== userId) {
-      res.status(403).json({ error: "Unauthorized to view booking status" });
-      return;
-    }
-
-    res.status(200).json({
-      id: booking.booking_id,
-      ride_status: booking.ride_status,
-      driver_id: booking.driver_id,
-      // Include other relevant fields
-    });
-  } catch (error) {
-    console.error("Error getting booking status:", error);
-    res.status(500).json({ error: "Error getting booking status" });
-    return;
-  }
-};
+/**
+ * DELETE: Redundant function - already handled by requestTrip
+ * This function is no longer needed as drivers are automatically assigned
+ */
+/**
+ * DELETE: Redundant function - replaced by getTripDetails
+ * This function provides less information than getTripDetails
+ */
+/**
+ * KEEP: Important function for retrieving driver information
+ * Used by passengers to view details about their assigned driver
+ */
 export const getDriverDetails = async (
   req: Request,
   res: Response
@@ -340,6 +272,10 @@ export const getDriverDetails = async (
 };
 // simplified controllers for other states
 // driver arrived at the pickup location
+/**
+ * DELETE: Redundant function - can be merged with startTrip
+ * This status update can be handled directly in the startTrip function
+ */
 export const driverArrived = async (
   req: Request,
   res: Response
@@ -387,6 +323,10 @@ export const driverArrived = async (
   }
 };
 // start of the trip
+/**
+ * KEEP: Core function for starting a trip
+ * Updates trip status when driver starts the journey with passenger
+ */
 export const startTrip = async (req: Request, res: Response): Promise<void> => {
   const { tripId: bookingId } = req.params;
   const userId = req.user?.id;
@@ -456,6 +396,10 @@ export const startTrip = async (req: Request, res: Response): Promise<void> => {
   }
 };
 // get the current trip
+/**
+ * KEEP: Important function for retrieving active trip information
+ * Used by both passengers and drivers to get details about their current trip
+ */
 export const getCurrentTrip = async (
   req: Request,
   res: Response
@@ -507,6 +451,10 @@ export const getCurrentTrip = async (
   }
 };
 // end of the trip
+/**
+ * KEEP: Core function for completing a trip
+ * Updates trip status when driver completes the journey and makes driver available again
+ */
 export const completeTrip = async (
   req: Request,
   res: Response
@@ -540,19 +488,6 @@ export const completeTrip = async (
       return;
     }
     // make the driver available again after the trip
-    const { error: driverStatusError } = await supabaseAdmin
-      .from("driverTable")
-      .update({
-        driving_status: "Offline",
-        last_online: new Date().toISOString()
-      })
-      .eq("driver_id", driverUserId);
-    if (driverStatusError) {
-      console.error(
-        "Error updating driver status post-trip:",
-        driverStatusError
-      );
-    }
     res
       .status(200)
       .json({ message: "Trip completed successfully", booking: bookingData });
@@ -563,6 +498,10 @@ export const completeTrip = async (
   }
 };
 // cancelling the trip
+/**
+ * KEEP: Important function for cancelling trips
+ * Allows both passengers and drivers to cancel a trip with a reason
+ */
 export const cancelTrip = async (
   req: Request,
   res: Response
@@ -628,20 +567,6 @@ export const cancelTrip = async (
       res.status(400).json({ error: "Error cancelling trip" });
       return;
     }
-    // If a driver was assigned, set their status back to available
-    if (cancelledBooking.driver_id) {
-      const { error: driverStatusError } = await supabaseAdmin
-        .from("driverTable")
-        .update({ driving_status: "Offline" })
-        .eq("driver_id", cancelledBooking.driver_id);
-      if (driverStatusError) {
-        // Log this error but don't fail the cancellation for the user
-        console.error(
-          "Error updating driver status to available after cancellation:",
-          driverStatusError
-        );
-      }
-    }
     res.status(200).json({
       message: "Trip cancelled successfully",
       booking: cancelledBooking,
@@ -652,6 +577,10 @@ export const cancelTrip = async (
     return;
   }
 };
+/**
+ * KEEP: Important function for retrieving detailed trip information
+ * Used to get comprehensive details about a specific trip
+ */
 export const getTripDetails = async (
   req: Request,
   res: Response
@@ -662,30 +591,39 @@ export const getTripDetails = async (
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  if (!tripId || typeof tripId !== "string") {
-    res.status(400).json({ error: "Missing trip ID" });
-    return;
-  }
+
   try {
-    const { data: trip, error } = await supabase
-      .from("bookings")
-      .select("*")
-      .eq("booking_id", tripId)
-      .or(`passenger_id.eq.${userId},driver_id.eq.${userId}`)
-      .maybeSingle();
-    if (error || !trip) {
-      console.error("Error fetching trip details:", error);
-      res.status(404).json({ error: "Trip not found or unauthorized." });
+    // Fetch booking details with authorization via RPC
+    const { data: booking, error } = await supabase.rpc(
+      "get_booking_details",
+      {
+        p_booking_id: parseInt(tripId, 10),
+        p_user_id: userId,
+      }
+    );
+
+    if (error || !booking) {
+      if (error?.message.includes("Booking not found")) {
+        res.status(404).json({ error: "Trip not found" });
+      } else if (error?.message.includes("Unauthorized")) {
+        res.status(403).json({ error: "Unauthorized to view this trip" });
+      } else {
+        console.error("Error fetching trip details:", error);
+        res.status(500).json({ error: "An unexpected error occurred." });
+      }
       return;
     }
-    res.status(200).json({ trip });
-    return;
+
+    res.status(200).json({ trip: booking });
   } catch (error) {
     console.error("Error fetching trip details:", error);
-    res.status(500).json({ error: "An unexpected error occured." });
-    return;
+    res.status(500).json({ error: "An unexpected error occurred." });
   }
 };
+/**
+ * KEEP: Important function for retrieving passenger trip history
+ * Used by passengers to view their past trips
+ */
 export const getPassengerTripHistory = async (
   req: Request,
   res: Response
@@ -716,6 +654,10 @@ export const getPassengerTripHistory = async (
     return;
   }
 };
+/**
+ * KEEP: Important function for retrieving driver trip history
+ * Used by drivers to view their past trips
+ */
 export const getDriverTripHistory = async (
   req: Request,
   res: Response
@@ -746,6 +688,10 @@ export const getDriverTripHistory = async (
   }
 };
 
+/**
+ * DELETE: Commented out notification function
+ * This function is already commented out and not being used
+ */
 /*
 const sendDriverNotifications = async (drivers: any[], booking: any) => {
   try {
@@ -805,6 +751,10 @@ const sendDriverNotifications = async (drivers: any[], booking: any) => {
 };
 */
 
+/**
+ * DELETE: Commented out notification function
+ * This function is already commented out and not being used
+ */
 /*
 // Helper to notify passenger when no drivers are found
 const sendPassengerNoDriversNotification = async (
@@ -842,3 +792,6 @@ const sendPassengerNoDriversNotification = async (
   }
 };
 */
+
+
+
