@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import { setupRealtimeSubscriptions } from "./utils/realtimeSubscriptions";
 import asyncHandler from "express-async-handler";
 import { authenticate, passengerMiddleware, driverMiddleware } from "./middleware/authMiddleware";
-import { assignDriver, findAndAssignDriver, requestTrip } from "./controllers/tripController";
+import { requestTrip, getTripDetails, getDriverDetails } from "./controllers/tripController";
 import { updateDriverAvailability, updateDriverLocation } from "./controllers/driverController";
 
 dotenv.config();
@@ -37,13 +37,6 @@ app.post(
   asyncHandler(authenticate as express.RequestHandler),
   asyncHandler(passengerMiddleware as express.RequestHandler),
   asyncHandler(requestTrip)
-);
-
-app.post(
-  "/api/bookings/find-assign-driver",
-  asyncHandler(authenticate as express.RequestHandler),
-  asyncHandler(passengerMiddleware as express.RequestHandler),
-  asyncHandler(findAndAssignDriver)
 );
 
 app.post(
@@ -97,6 +90,19 @@ app.get("/api/test-endpoint", (_req: Request, res: Response) => {
 app.get("/api/bookings/test", (_req: Request, res: Response) => {
   res.json({ message: "Bookings path is accessible" });
 });
+
+app.get(
+  "/api/bookings/:tripId",
+  asyncHandler(authenticate as express.RequestHandler),
+  asyncHandler(getTripDetails)
+);
+
+// Driver details endpoint for Flutter client
+app.get(
+  "/api/drivers/:driverId",
+  asyncHandler(authenticate as express.RequestHandler),
+  asyncHandler(getDriverDetails)
+);
 
 // Listen on all network interfaces
 app.listen(port, '0.0.0.0', () => {

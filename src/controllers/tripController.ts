@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { supabase } from "../utils/supabaseClient";
+import { supabase, supabaseAdmin } from "../utils/supabaseClient";
 // import admin from "firebase-admin";
 // import { getMessaging } from "firebase-admin/messaging";
 
@@ -84,7 +84,7 @@ export const requestTrip = async (
       .from("bookings")
       .insert({
         passenger_id: passengerUserId,
-        ride_status: "requested",
+        ride_status: "accepted",
         pickup_lat: origin_latitude,
         pickup_lng: origin_longitude,
         pickup_address: pickup_address,
@@ -105,11 +105,11 @@ export const requestTrip = async (
     }
     // automatically assign the closest driver
     const assignedDriver = drivers[0];
-    const { data: updatedBooking, error: assignmentError } = await supabase
+    const { data: updatedBooking, error: assignmentError } = await supabaseAdmin
       .from("bookings")
       .update({
         driver_id: assignedDriver.driver_id,
-        ride_status: "requested",
+        ride_status: "accepted",
         assigned_at: new Date().toISOString(),
       })
       .eq("booking_id", newBooking.booking_id)
@@ -121,7 +121,7 @@ export const requestTrip = async (
       return;
     }
     // update driver status to unavailable
-    const { error: driverStatusError } = await supabase
+    const { error: driverStatusError } = await supabaseAdmin
       .from("driverTable")
       .update({
         driving_status: "Driving",
@@ -190,11 +190,11 @@ export const acceptTrip = async (
     const { data: updatedBooking, error: updateError } = await supabase
       .from("bookings")
       .update({
-        ride_status: "assigned",
+        ride_status: "accepted",
         driver_id: driverUserId,
       })
       .eq("booking_id", bookingId)
-      .eq("ride_status", "requested")
+      .eq("ride_status", "accepted")
       .select()
       .single();
     if (updateError || !updatedBooking) {
@@ -205,7 +205,7 @@ export const acceptTrip = async (
       return;
     }
     // set the driver status to unavailable
-    const { error: driverStatusError } = await supabase
+    const { error: driverStatusError } = await supabaseAdmin
       .from("driverTable")
       .update({
         driving_status: "Driving",
@@ -223,87 +223,6 @@ export const acceptTrip = async (
   } catch (error) {
     console.error("Error accepting trip:", error);
     res.status(500).json({ error: "Error accepting trip" });
-    return;
-  }
-};
-export const assignDriver = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const bookingId = req.body.booking_id;
-  const passengerUserId = req.user?.id;
-  if (!passengerUserId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  if (!bookingId) {
-    res.status(400).json({ error: "Missing booking ID" });
-    return;
-  }
-
-  try {
-    const { data: booking, error: bookingError } = await supabase
-      .from("bookings")
-      .select("*")
-      .eq("booking_id", bookingId)
-      .eq("passenger_id", passengerUserId)
-      .single();
-
-    if (!booking) {
-      res.status(404).json({ error: "Booking not found" });
-      return;
-    }
-
-    const pickupLng = booking.pickup_lng;
-    const pickupLat = booking.pickup_lat;
-
-    const { data: drivers, error: searchError } = await supabase.rpc(
-      "find_available_drivers_for_route",
-      {
-        passenger_lon: pickupLng,
-        passenger_lat: pickupLat,
-        search_radius_m: SEARCH_RADIUS_METERS,
-        max_drivers: MAX_DRIVERS_TO_FIND,
-        p_route_id: booking.route_id,
-      }
-    );
-
-    if (searchError) {
-      console.error("Error finding drivers:", searchError);
-      res.status(500).json({ error: "Error finding drivers" });
-      return;
-    }
-
-    if (!drivers || drivers.length === 0) {
-      console.log(`INFO: No drivers found for booking ${bookingId}`);
-      // await sendPassengerNoDriversNotification(passengerUserId, bookingId);
-      res.status(404).json({ error: "No drivers found" });
-      return;
-    }
-
-    // Update booking status to searching
-    const { error: updateError } = await supabase
-      .from("bookings")
-      .update({ ride_status: "searching" })
-      .eq("booking_id", bookingId);
-
-    if (updateError) {
-      console.error("Error updating booking status:", updateError);
-      res.status(500).json({ error: "Error updating booking status" });
-      return;
-    }
-
-    // Notify drivers
-    // await sendDriverNotifications(drivers, booking);
-
-    res.status(200).json({
-      message: "Driver assignment initiated",
-      booking_id: bookingId,
-      drivers_notified: drivers.length,
-    });
-  } catch (error) {
-    console.error("Error assigning driver:", error);
-    res.status(500).json({ error: "Error assigning driver" });
     return;
   }
 };
@@ -621,7 +540,7 @@ export const completeTrip = async (
       return;
     }
     // make the driver available again after the trip
-    const { error: driverStatusError } = await supabase
+    const { error: driverStatusError } = await supabaseAdmin
       .from("driverTable")
       .update({
         driving_status: "Offline",
@@ -651,6 +570,8 @@ export const cancelTrip = async (
   const { tripId: bookingId } = req.params;
   const userId = req.user?.id;
   const { reason } = req.body;
+  // Debug log cancellation invocation
+  console.log(`cancelTrip invoked: bookingId=${bookingId}, userId=${userId}, reason=${reason}`);
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -681,9 +602,7 @@ export const cancelTrip = async (
     }
     // Check if the trip is already in a final state
     const cancellableStates = [
-      "requested",
-      "completed",
-      "assigned",
+      "accepted",
       "ongoing",
     ];
     if (!cancellableStates.includes(booking.ride_status)) {
@@ -711,7 +630,7 @@ export const cancelTrip = async (
     }
     // If a driver was assigned, set their status back to available
     if (cancelledBooking.driver_id) {
-      const { error: driverStatusError } = await supabase
+      const { error: driverStatusError } = await supabaseAdmin
         .from("driverTable")
         .update({ driving_status: "Offline" })
         .eq("driver_id", cancelledBooking.driver_id);
@@ -923,97 +842,3 @@ const sendPassengerNoDriversNotification = async (
   }
 };
 */
-
-export const findAndAssignDriver = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const { tripId: bookingId } = req.body;
-  const passengerUserId = req.user?.id;
-  
-  if (!bookingId || !passengerUserId) {
-    res.status(400).json({ error: "Missing required fields" });
-    return;
-  }
-  
-  try {
-    // Get booking details
-    const { data: booking, error: bookingError } = await supabase
-      .from("bookings")
-      .select("*")
-      .eq("booking_id", bookingId)
-      .eq("passenger_id", passengerUserId)
-      .single();
-      
-    if (bookingError || !booking) {
-      res.status(404).json({ error: "Booking not found" });
-      return;
-    }
-    
-    // Find nearest available driver using the find_available_drivers_for_route RPC
-    const { data: drivers, error: driverError } = await supabase.rpc(
-      "find_available_drivers_for_route",
-      {
-        passenger_lon: booking.pickup_lng,
-        passenger_lat: booking.pickup_lat,
-        search_radius_m: SEARCH_RADIUS_METERS,
-        max_drivers: 1,
-        p_route_id: booking.route_id,
-      }
-    );
-      
-    if (driverError) {
-      console.error("Error finding drivers:", driverError);
-      res.status(500).json({ error: "Error finding drivers" });
-      return;
-    }
-    
-    if (!drivers || drivers.length === 0) {
-      console.log(`No available drivers found for booking ${bookingId}`);
-      res.status(404).json({ error: "No available drivers found" });
-      return;
-    }
-    
-    const driver = drivers[0];
-    
-    // Assign driver to booking
-    const { error: updateError } = await supabase
-      .from("bookings")
-      .update({
-        driver_id: driver.driver_id,
-        ride_status: "assigned",
-        assigned_at: new Date().toISOString()
-      })
-      .eq("booking_id", bookingId);
-      
-    if (updateError) {
-      console.error("Error assigning driver:", updateError);
-      res.status(500).json({ error: "Error assigning driver" });
-      return;
-    }
-    
-    // Update driver status
-    const { error: driverUpdateError } = await supabase
-      .from("driverTable")
-      .update({
-        driving_status: "Driving",
-        last_online: new Date()
-      })
-      .eq("driver_id", driver.driver_id);
-      
-    if (driverUpdateError) {
-      console.error("Error updating driver status:", driverUpdateError);
-    }
-    
-    // Send notification to driver (you can implement this later)
-    
-    res.status(200).json({
-      message: "Driver assigned successfully",
-      driver: driver,
-      tripId: bookingId
-    });
-  } catch (error) {
-    console.error("Error in findAndAssignDriver:", error);
-    res.status(500).json({ error: "An unexpected error occurred" });
-  }
-};
