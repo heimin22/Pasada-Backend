@@ -1,48 +1,74 @@
 import { Request, Response } from "express";
-import { supabase } from "../utils/supabaseClient";
-const SEARCH_RADIUS_METERS = 5000;
-const MAX_DRIVERS_TO_FIND = 10;
+import { supabase, supabaseAdmin } from "../utils/supabaseClient";
+// import admin from "firebase-admin";
+// import { getMessaging } from "firebase-admin/messaging";
+
+/*
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId:   process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey:  process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+    }),
+  });
+}
+*/
+
+const SEARCH_RADIUS_METERS = 1000;
+const MAX_DRIVERS_TO_FIND = 32;
 export const requestTrip = async (
   req: Request,
-  res: Response,
+  res: Response
 ): Promise<void> => {
   const {
     origin_latitude,
     origin_longitude,
-    origin_address,
+    pickup_address,
     destination_latitude,
     destination_longitude,
-    destination_address,
+    dropoff_address,
     route_trip,
     fare,
     payment_method,
   } = req.body;
+
+  // Debug: log incoming request payload
+  console.log('requestTrip payload:', JSON.stringify(req.body));
+
   const passengerUserId = req.user?.id;
   if (!passengerUserId) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  if (
-    typeof origin_latitude !== "number" ||
-    typeof origin_longitude !== "number" ||
-    typeof destination_latitude !== "number" ||
-    typeof destination_longitude !== "number" ||
-    !origin_address ||
-    !destination_address
-  ) {
-    res.status(400).json({ error: "Missing required fields" });
+  const missingFields: string[] = [];
+  if (typeof origin_latitude !== 'number') missingFields.push('origin_latitude');
+  if (typeof origin_longitude !== 'number') missingFields.push('origin_longitude');
+  if (typeof destination_latitude !== 'number') missingFields.push('destination_latitude');
+  if (typeof destination_longitude !== 'number') missingFields.push('destination_longitude');
+  if (!pickup_address) missingFields.push('pickup_address');
+  if (!dropoff_address) missingFields.push('dropoff_address');
+  if (typeof route_trip !== 'number' && typeof route_trip !== 'string') missingFields.push('route_trip');
+  if (typeof fare !== 'number') missingFields.push('fare');
+  if (!payment_method) missingFields.push('payment_method');
+  if (missingFields.length > 0) {
+    res.status(400).json({ error: 'Missing required fields', missingFields });
     return;
   }
   try {
-    // find nearby drivers
+    const pickupLng = origin_longitude;
+    const pickupLat = origin_latitude;
+    // find nearby drivers via Postgres RPC
+    const routeTripId = typeof route_trip === 'string' ? parseInt(route_trip, 10) : route_trip;
     const { data: drivers, error: searchError } = await supabase.rpc(
-      "find_available_drivers_nearby",
+      "find_available_drivers_for_route",
       {
-        passenger_lon: origin_longitude,
-        passenger_lat: origin_latitude,
-        search_radius: SEARCH_RADIUS_METERS,
+        passenger_lon: pickupLng,
+        passenger_lat: pickupLat,
+        search_radius_m: SEARCH_RADIUS_METERS,
         max_drivers: MAX_DRIVERS_TO_FIND,
-      },
+        p_route_id: routeTripId
+      }
     );
     if (searchError) {
       console.error("Error finding drivers:", searchError);
@@ -54,21 +80,21 @@ export const requestTrip = async (
       return;
     }
     // create a trip request
-    const originLocationWKT = `POINT(${origin_longitude} ${origin_latitude})`;
-    const destinationLocationWKT =
-      `POINT(${destination_longitude} ${destination_latitude})`;
     const { data: newBooking, error: bookingError } = await supabase
       .from("bookings")
       .insert({
         passenger_id: passengerUserId,
-        status: "requested",
-        origin_location: originLocationWKT,
-        origin_address: origin_address,
-        destination_location: destinationLocationWKT,
-        destination_address: destination_address,
-        route_trip: route_trip,
+        ride_status: "accepted",
+        pickup_lat: origin_latitude,
+        pickup_lng: origin_longitude,
+        pickup_address: pickup_address,
+        dropoff_lat: destination_latitude,
+        dropoff_lng: destination_longitude,
+        dropoff_address: dropoff_address,
         fare: fare,
         payment_method: payment_method,
+        created_at: new Date().toISOString(),
+        route_id: routeTripId,
       })
       .select()
       .single();
@@ -77,22 +103,40 @@ export const requestTrip = async (
       res.status(500).json({ error: "Error creating trip request" });
       return;
     }
-    // respond to passenger with booking details
-    // this should return the newly created booking details
-    // the frontend should use Realtime to get updates on the booking status
+    // automatically assign the closest driver
+    const assignedDriver = drivers[0];
+    const { data: updatedBooking, error: assignmentError } = await supabaseAdmin
+      .from("bookings")
+      .update({
+        driver_id: assignedDriver.driver_id,
+        ride_status: "accepted",
+        assigned_at: new Date().toISOString(),
+      })
+      .eq("booking_id", newBooking.booking_id)
+      .select()
+      .single();
+    if (assignmentError || !updatedBooking) {
+      console.error("Error assigning driver to booking:", assignmentError);
+      res.status(500).json({ error: "Error assigning driver" });
+      return;
+    }
+    // update driver status to unavailable
+    const { error: driverStatusError } = await supabaseAdmin
+      .from("driverTable")
+      .update({
+        driving_status: "Driving",
+        last_online: new Date().toISOString(),
+      })
+      .eq("driver_id", assignedDriver.driver_id);
+    if (driverStatusError) {
+      console.error("Error updating driver status:", driverStatusError);
+    }
+    // respond with booking details and assigned driver
     res.status(201).json({
-      message: "Trip requested successfully. Searching for drivers...",
-      booking: newBooking,
-      nearby_drivers: drivers,
+      message: "Trip requested and driver assigned successfully",
+      booking: updatedBooking,
+      driver: assignedDriver,
     });
-    // Notify drivers
-    console.log(
-      `INFO: Booking ${newBooking.id} requested by passenger ${passengerUserId}`,
-    );
-    console.log(
-      `INFO: Searching for drivers within ${SEARCH_RADIUS_METERS} meters`,
-    );
-    // send notifications to drivers
   } catch (error) {
     console.error("Error requesting trip:", error);
     res.status(500).json({ error: "Error requesting trip" });
@@ -101,9 +145,9 @@ export const requestTrip = async (
 };
 export const acceptTrip = async (
   req: Request,
-  res: Response,
+  res: Response
 ): Promise<void> => {
-  const { bookingId } = req.params;
+  const bookingId = req.body.booking_id;
   const driverUserId = req.user?.id;
   if (!driverUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -120,7 +164,7 @@ export const acceptTrip = async (
       {
         booking_id_to_accept: bookingId,
         driver_id_to_accept: driverUserId,
-      },
+      }
     );
     if (rpcError) {
       console.error("Error accepting trip:", rpcError);
@@ -146,11 +190,11 @@ export const acceptTrip = async (
     const { data: updatedBooking, error: updateError } = await supabase
       .from("bookings")
       .update({
-        status: "accepted",
+        ride_status: "accepted",
         driver_id: driverUserId,
       })
-      .eq("id", bookingId)
-      .eq("status", "requested")
+      .eq("booking_id", bookingId)
+      .eq("ride_status", "accepted")
       .select()
       .single();
     if (updateError || !updatedBooking) {
@@ -161,10 +205,11 @@ export const acceptTrip = async (
       return;
     }
     // set the driver status to unavailable
-    const { error: driverStatusError } = await supabase
+    const { error: driverStatusError } = await supabaseAdmin
       .from("driverTable")
       .update({
-        is_available: false,
+        driving_status: "Driving",
+        last_online: new Date().toISOString()
       })
       .eq("driver_id", driverUserId);
     if (driverStatusError) {
@@ -181,13 +226,125 @@ export const acceptTrip = async (
     return;
   }
 };
+export const getBookingStatus = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const { tripId } = req.params;
+  const bookingId = parseInt(tripId, 10);
+  if (isNaN(bookingId)) {
+    res.status(400).json({ error: "Invalid trip ID" });
+    return;
+  }
+  const userId = req.user?.id;
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  try {
+    const { data: booking, error } = await supabase
+      .from("bookings")
+      .select("*, passenger_id, driver_id")
+      .eq("booking_id", bookingId)
+      .single();
+
+    if (error || !booking) {
+      console.error("Error fetching booking status:", error);
+      res.status(404).json({ error: "Booking not found" });
+      return;
+    }
+    if (booking.passenger_id !== userId && booking.driver_id !== userId) {
+      res.status(403).json({ error: "Unauthorized to view booking status" });
+      return;
+    }
+
+    res.status(200).json({
+      id: booking.booking_id,
+      ride_status: booking.ride_status,
+      driver_id: booking.driver_id,
+      // Include other relevant fields
+    });
+  } catch (error) {
+    console.error("Error getting booking status:", error);
+    res.status(500).json({ error: "Error getting booking status" });
+    return;
+  }
+};
+export const getDriverDetails = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const { driverId } = req.params;
+  const userId = req.user?.id;
+
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  try {
+    // First check if this user has a booking with this driver
+    const { data: booking, error: bookingError } = await supabase
+      .from("bookings")
+      .select("booking_id")
+      .eq("passenger_id", userId)
+      .eq("driver_id", driverId)
+      .maybeSingle();
+
+    // Allow if user is the driver or has a booking with this driver
+    if ((bookingError || !booking) && userId !== driverId) {
+      res
+        .status(403)
+        .json({ error: "Unauthorized to view this driver's details" });
+      return;
+    }
+
+    const { data: driver, error } = await supabase
+      .from("driverTable")
+      .select(
+        `
+        driver_id,
+        first_name,
+        last_name,
+        phone_number,
+        profile_picture,
+        vehicle:vehicle_id (
+          model,
+          plate_number,
+          color,
+          passenger_capacity
+        )
+      `
+      )
+      .eq("driver_id", driverId)
+      .single();
+
+    if (error || !driver) {
+      console.error("Error fetching driver details:", error);
+      res.status(404).json({ error: "Driver not found" });
+      return;
+    }
+
+    res.status(200).json({
+      id: driver.driver_id,
+      name: `${driver.first_name} ${driver.last_name}`,
+      phone_number: driver.phone_number,
+      profile_picture: driver.profile_picture,
+      vehicle: driver.vehicle,
+    });
+  } catch (error) {
+    console.error("Error fetching driver details:", error);
+    res.status(500).json({ error: "Error fetching driver details" });
+  }
+};
 // simplified controllers for other states
 // driver arrived at the pickup location
 export const driverArrived = async (
   req: Request,
-  res: Response,
+  res: Response
 ): Promise<void> => {
-  const { bookingId } = req.params;
+  const { tripId: bookingId } = req.params;
   const driverUserId = req.user?.id;
   if (!driverUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -201,11 +358,11 @@ export const driverArrived = async (
     const { data: updatedBooking, error } = await supabase
       .from("bookings")
       .update({
-        status: "driver_arrived",
+        ride_status: "ongoing",
       })
-      .eq("id", bookingId)
+      .eq("booking_id", bookingId)
       .eq("driver_id", driverUserId)
-      .eq("status", "accepted")
+      .eq("ride_status", "assigned")
       .select()
       .single();
     if (error || !updatedBooking) {
@@ -231,7 +388,7 @@ export const driverArrived = async (
 };
 // start of the trip
 export const startTrip = async (req: Request, res: Response): Promise<void> => {
-  const { bookingId } = req.params;
+  const { tripId: bookingId } = req.params;
   const userId = req.user?.id;
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -245,7 +402,7 @@ export const startTrip = async (req: Request, res: Response): Promise<void> => {
     // find the trip first to ensure the user is part of it
     const { data: bookingData, error: bookingError } = await supabase
       .from("bookings")
-      .select("passenger_id, driver_id, status")
+      .select("passenger_id, driver_id, ride_status")
       .eq("booking_id", bookingId)
       .maybeSingle();
     if (bookingError) {
@@ -267,7 +424,7 @@ export const startTrip = async (req: Request, res: Response): Promise<void> => {
       return;
     }
     // check if the booking is in a valid state to start
-    if (!["accepted", "driver_arrived"].includes(bookingData.status)) {
+    if (!["assigned", "ongoing"].includes(bookingData.ride_status)) {
       res
         .status(409)
         .json({ error: "Trip cannot be started in its current state." });
@@ -277,11 +434,11 @@ export const startTrip = async (req: Request, res: Response): Promise<void> => {
     const { data: updatedBooking, error: updateError } = await supabase
       .from("bookings")
       .update({
-        status: "ongoing",
+        ride_status: "ongoing",
         started_at: new Date().toISOString(),
       })
-      .eq("id", bookingId)
-      .in("status", ["accepted", "driver_arrived"])
+      .eq("booking_id", bookingId)
+      .in("ride_status", ["assigned", "ongoing"])
       .select()
       .single();
     if (updateError || !updatedBooking) {
@@ -301,7 +458,7 @@ export const startTrip = async (req: Request, res: Response): Promise<void> => {
 // get the current trip
 export const getCurrentTrip = async (
   req: Request,
-  res: Response,
+  res: Response
 ): Promise<void> => {
   const userId = req.user?.id;
   if (!userId) {
@@ -312,10 +469,10 @@ export const getCurrentTrip = async (
     const { data: booking, error } = await supabase
       .from("bookings")
       .select(
-        "*, driverTable: driver_id ( first_name, last_name, driver_id, vehicle_id ), passenger: id ( id ) ",
+        "*, driverTable: driver_id ( first_name, last_name, driver_id, vehicle_id ), passenger: id ( id ) "
       )
       .or(`id.eq.${userId},driver_id.eq.${userId}`)
-      .in("status", ["accepted", "driver_arrived", "ongoing"])
+      .in("ride_status", ["assigned", "ongoing"])
       .order("created_at", { ascending: false })
       .maybeSingle();
     if (error) {
@@ -352,9 +509,9 @@ export const getCurrentTrip = async (
 // end of the trip
 export const completeTrip = async (
   req: Request,
-  res: Response,
+  res: Response
 ): Promise<void> => {
-  const { bookingId } = req.params;
+  const { tripId: bookingId } = req.params;
   const driverUserId = req.user?.id;
   if (!driverUserId) {
     res.status(401).json({ error: "Unauthorized" });
@@ -369,12 +526,12 @@ export const completeTrip = async (
     const { data: bookingData, error: bookingError } = await supabase
       .from("bookings")
       .update({
-        status: "completed",
+        ride_status: "completed",
         completed_at: new Date().toISOString(),
       })
-      .eq("id", bookingId)
+      .eq("booking_id", bookingId)
       .eq("driver_id", driverUserId)
-      .eq("status", "ongoing")
+      .eq("ride_status", "ongoing")
       .select()
       .single();
     if (bookingError || !bookingData) {
@@ -383,16 +540,17 @@ export const completeTrip = async (
       return;
     }
     // make the driver available again after the trip
-    const { error: driverStatusError } = await supabase
+    const { error: driverStatusError } = await supabaseAdmin
       .from("driverTable")
       .update({
-        is_available: true,
+        driving_status: "Offline",
+        last_online: new Date().toISOString()
       })
       .eq("driver_id", driverUserId);
     if (driverStatusError) {
       console.error(
         "Error updating driver status post-trip:",
-        driverStatusError,
+        driverStatusError
       );
     }
     res
@@ -407,11 +565,13 @@ export const completeTrip = async (
 // cancelling the trip
 export const cancelTrip = async (
   req: Request,
-  res: Response,
+  res: Response
 ): Promise<void> => {
-  const { bookingId } = req.params;
+  const { tripId: bookingId } = req.params;
   const userId = req.user?.id;
   const { reason } = req.body;
+  // Debug log cancellation invocation
+  console.log(`cancelTrip invoked: bookingId=${bookingId}, userId=${userId}, reason=${reason}`);
   if (!userId) {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -423,8 +583,8 @@ export const cancelTrip = async (
   try {
     const { data: booking, error: fetchError } = await supabase
       .from("bookings")
-      .select("status, passenger_id, driver_id, id")
-      .eq("id", bookingId)
+      .select("ride_status, passenger_id, driver_id, id")
+      .eq("booking_id", bookingId)
       .maybeSingle();
     if (fetchError || !booking) {
       console.error("Error fetching booking for cancellation:", fetchError);
@@ -442,12 +602,10 @@ export const cancelTrip = async (
     }
     // Check if the trip is already in a final state
     const cancellableStates = [
-      "request",
-      "completed",
-      "driver_arrived",
+      "accepted",
       "ongoing",
     ];
-    if (!cancellableStates.includes(booking.status)) {
+    if (!cancellableStates.includes(booking.ride_status)) {
       res
         .status(409)
         .json({ error: "Trip is not cancellable in its current state." });
@@ -457,12 +615,12 @@ export const cancelTrip = async (
     const { data: cancelledBooking, error: cancellationError } = await supabase
       .from("bookings")
       .update({
-        status: "cancelled",
+        ride_status: "cancelled",
         cancelled_at: new Date().toISOString(),
         cancellation_reason: reason,
       })
-      .eq("id", bookingId)
-      .in("status", cancellableStates) // Only cancel if in cancellable state
+      .eq("booking_id", bookingId)
+      .in("ride_status", cancellableStates) // Only cancel if in cancellable state
       .select()
       .single();
     if (cancellationError || !cancelledBooking) {
@@ -472,24 +630,22 @@ export const cancelTrip = async (
     }
     // If a driver was assigned, set their status back to available
     if (cancelledBooking.driver_id) {
-      const { error: driverStatusError } = await supabase
+      const { error: driverStatusError } = await supabaseAdmin
         .from("driverTable")
-        .update({ is_available: true })
+        .update({ driving_status: "Offline" })
         .eq("driver_id", cancelledBooking.driver_id);
       if (driverStatusError) {
         // Log this error but don't fail the cancellation for the user
         console.error(
           "Error updating driver status to available after cancellation:",
-          driverStatusError,
+          driverStatusError
         );
       }
     }
-    res
-      .status(200)
-      .json({
-        message: "Trip cancelled successfully",
-        booking: cancelledBooking,
-      });
+    res.status(200).json({
+      message: "Trip cancelled successfully",
+      booking: cancelledBooking,
+    });
   } catch (error) {
     console.error("Error cancelling trip:", error);
     res.status(500).json({ error: "An unexpected error occured." });
@@ -498,7 +654,7 @@ export const cancelTrip = async (
 };
 export const getTripDetails = async (
   req: Request,
-  res: Response,
+  res: Response
 ): Promise<void> => {
   const { tripId } = req.params;
   const userId = req.user?.id;
@@ -514,7 +670,7 @@ export const getTripDetails = async (
     const { data: trip, error } = await supabase
       .from("bookings")
       .select("*")
-      .eq("id", tripId)
+      .eq("booking_id", tripId)
       .or(`passenger_id.eq.${userId},driver_id.eq.${userId}`)
       .maybeSingle();
     if (error || !trip) {
@@ -532,7 +688,7 @@ export const getTripDetails = async (
 };
 export const getPassengerTripHistory = async (
   req: Request,
-  res: Response,
+  res: Response
 ): Promise<void> => {
   const passengerId = req.user?.id;
   if (!passengerId) {
@@ -548,7 +704,7 @@ export const getPassengerTripHistory = async (
     if (error) {
       console.error(
         "Erorr fetching trip history for passenger ${passengerId}:",
-        error,
+        error
       );
       res.status(500).json({ error: "Error fetching trip history" });
       return;
@@ -562,7 +718,7 @@ export const getPassengerTripHistory = async (
 };
 export const getDriverTripHistory = async (
   req: Request,
-  res: Response,
+  res: Response
 ): Promise<void> => {
   const driverId = req.user?.id;
   if (!driverId) {
@@ -578,7 +734,7 @@ export const getDriverTripHistory = async (
     if (error) {
       console.error(
         "Error fetching trip history for driver ${driver_id}:",
-        error,
+        error
       );
       res.status(500).json({ error: "Error fetching trip history" });
       return;
@@ -589,3 +745,100 @@ export const getDriverTripHistory = async (
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+/*
+const sendDriverNotifications = async (drivers: any[], booking: any) => {
+  try {
+    // Get driver IDs
+    const driverIds = drivers.map((driver) => driver.driver_id);
+
+    // Get FCM tokens for these drivers
+    const { data: tokenData, error: tokenError } = await supabase
+      .from("push_tokens")
+      .select("user_id, token")
+      .in("user_id", driverIds);
+
+    if (tokenError) {
+      console.error("Error fetching driver FCM tokens:", tokenError);
+      return;
+    }
+
+    // Create a map of driver IDs to tokens
+    const tokenMap = tokenData.reduce(
+      (map: { [key: string]: string }, item: any) => {
+        map[item.user_id] = item.token;
+        return map;
+      },
+      {}
+    );
+
+    // Prepare and send notifications
+    const messaging = getMessaging();
+    const notificationPromises = drivers.map((driver) => {
+      const token = tokenMap[driver.driver_id];
+      if (!token) return Promise.resolve(); // Skip if no token
+
+      return messaging.send({
+        token,
+        notification: {
+          title: "New Trip Request",
+          body: `New trip request from ${booking.origin_address} to ${booking.destination_address}`,
+        },
+        data: {
+          booking_id: booking.booking_id.toString(),
+          type: "new_trip_request",
+          origin: booking.origin_address,
+          destination: booking.destination_address,
+          fare: booking.fare.toString(),
+        },
+        android: {
+          priority: "high",
+        },
+      });
+    });
+
+    await Promise.all(notificationPromises);
+    console.log(`Notifications sent to ${drivers.length} drivers`);
+  } catch (error) {
+    console.error("Error sending driver notifications:", error);
+  }
+};
+*/
+
+/*
+// Helper to notify passenger when no drivers are found
+const sendPassengerNoDriversNotification = async (
+  userId: string,
+  bookingId: string | number
+) => {
+  try {
+    const { data: tokenData, error: tokenError } = await supabase
+      .from("push_tokens")
+      .select("token")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (tokenError || !tokenData) {
+      console.error("Error fetching passenger FCM token:", tokenError);
+      return;
+    }
+    const token = tokenData.token;
+    const messaging = getMessaging();
+    await messaging.send({
+      token,
+      notification: {
+        title: "No Drivers Available",
+        body: "Sorry, there are no available drivers for your trip request right now.",
+      },
+      data: {
+        booking_id: bookingId.toString(),
+        type: "no_drivers_found",
+      },
+      android: {
+        priority: "high",
+      },
+    });
+  } catch (error) {
+    console.error("Error sending passenger notification:", error);
+  }
+};
+*/

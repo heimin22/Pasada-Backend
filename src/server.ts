@@ -4,6 +4,10 @@ import tripRoutes from "./routes/tripRoutes";
 import cors from "cors";
 import dotenv from "dotenv";
 import { setupRealtimeSubscriptions } from "./utils/realtimeSubscriptions";
+import asyncHandler from "express-async-handler";
+import { authenticate, passengerMiddleware, driverMiddleware } from "./middleware/authMiddleware";
+import { requestTrip, getTripDetails, getDriverDetails } from "./controllers/tripController";
+import { updateDriverAvailability, updateDriverLocation } from "./controllers/driverController";
 
 dotenv.config();
 console.log("This is the Pasada Backend Server");
@@ -28,6 +32,27 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/drivers", driverRoutes);
 app.use("/api/trips", tripRoutes);
 
+app.post(
+  "/api/bookings/assign-driver",
+  asyncHandler(authenticate as express.RequestHandler),
+  asyncHandler(passengerMiddleware as express.RequestHandler),
+  asyncHandler(requestTrip)
+);
+
+app.post(
+  "/api/drivers/update-availability",
+  asyncHandler(authenticate as express.RequestHandler),
+  asyncHandler(driverMiddleware as express.RequestHandler),
+  asyncHandler(updateDriverAvailability)
+);
+
+app.post(
+  "/api/drivers/update-driver-location",
+  asyncHandler(authenticate as express.RequestHandler),
+  asyncHandler(driverMiddleware as express.RequestHandler),
+  asyncHandler(updateDriverLocation)
+);
+
 // Error handling middleware
 app.use(
   (err: Error, _req: Request, res: Response, _next: express.NextFunction) => {
@@ -47,9 +72,37 @@ app.get("/api/test", (_req: Request, res: Response) => {
   });
 });
 
-app.get("/health", (_req: Request, res: Response) => {
+app.get("/api/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
 });
+
+app.get("/api/test/trips", (_req: Request, res: Response) => {
+  res.json({ 
+    message: "This is a test endpoint that doesn't require authentication",
+    timestamp: new Date().toISOString() 
+  });
+});
+
+app.get("/api/test-endpoint", (_req: Request, res: Response) => {
+  res.json({ message: "Test endpoint is working" });
+});
+
+app.get("/api/bookings/test", (_req: Request, res: Response) => {
+  res.json({ message: "Bookings path is accessible" });
+});
+
+app.get(
+  "/api/bookings/:tripId",
+  asyncHandler(authenticate as express.RequestHandler),
+  asyncHandler(getTripDetails)
+);
+
+// Driver details endpoint for Flutter client
+app.get(
+  "/api/drivers/:driverId",
+  asyncHandler(authenticate as express.RequestHandler),
+  asyncHandler(getDriverDetails)
+);
 
 // Listen on all network interfaces
 app.listen(port, '0.0.0.0', () => {
