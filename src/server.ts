@@ -97,7 +97,6 @@ app.get(
   asyncHandler(getTripDetails)
 );
 
-// Driver details endpoint for Flutter client
 app.get(
   "/api/drivers/:driverId",
   asyncHandler(authenticate as express.RequestHandler),

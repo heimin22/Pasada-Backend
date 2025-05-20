@@ -2,14 +2,12 @@ import express from "express";
 import asyncHandler from "express-async-handler";
 import {
   requestTrip, 
-  driverArrived, 
   startTrip, 
   completeTrip, 
   getCurrentTrip, 
   cancelTrip, 
   getTripDetails, 
   getPassengerTripHistory, 
-  getDriverTripHistory,
   getDriverDetails
 } from '../controllers/tripController';
 import { authenticate, driverMiddleware, passengerMiddleware } from '../middleware/authMiddleware';
@@ -24,14 +22,12 @@ router.get('/current', asyncHandler(passengerMiddleware as express.RequestHandle
 router.post('/:tripId/cancel', asyncHandler(passengerMiddleware as express.RequestHandler), asyncHandler(cancelTrip));
 
 // Driver routes
-router.post('/:tripId/driver-arrived', asyncHandler(driverMiddleware as express.RequestHandler), asyncHandler(driverArrived));
 router.post('/:tripId/start', asyncHandler(driverMiddleware as express.RequestHandler), asyncHandler(startTrip));
 router.post('/:tripId/complete', asyncHandler(driverMiddleware as express.RequestHandler), asyncHandler(completeTrip));
 
 // Potential additional routes 
 router.get('/:tripId', asyncHandler(getTripDetails));
 router.get('/history/passenger', asyncHandler(passengerMiddleware as express.RequestHandler), asyncHandler(getPassengerTripHistory)); 
-router.get('/history/driver', asyncHandler(driverMiddleware as express.RequestHandler), asyncHandler(getDriverTripHistory)); 
 router.get('/driver/:driverId', asyncHandler(getDriverDetails));
 
 export default router;

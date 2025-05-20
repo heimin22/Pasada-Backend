@@ -139,7 +139,7 @@ export const requestTrip = async (
       return;
     }
     // create a trip request
-    const { data: newBooking, error: bookingError } = await supabase
+    const { data: newBooking, error: bookingError } = await supabaseAdmin
       .from("bookings")
       .insert({
         passenger_id: passengerUserId,
@@ -192,14 +192,6 @@ export const requestTrip = async (
   }
 };
 /**
- * DELETE: Redundant function - already handled by requestTrip
- * This function is no longer needed as drivers are automatically assigned
- */
-/**
- * DELETE: Redundant function - replaced by getTripDetails
- * This function provides less information than getTripDetails
- */
-/**
  * KEEP: Important function for retrieving driver information
  * Used by passengers to view details about their assigned driver
  */
@@ -207,120 +199,24 @@ export const getDriverDetails = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const { driverId } = req.params;
-  const userId = req.user?.id;
-
+  const driverId = parseInt(req.params.driverId, 10);
+  const userId   = req.user?.id;
   if (!userId) {
-    res.status(401).json({ error: "Unauthorized" });
+    res.status(401).json({ error: 'Unauthorized' });
     return;
   }
 
-  try {
-    // First check if this user has a booking with this driver
-    const { data: booking, error: bookingError } = await supabase
-      .from("bookings")
-      .select("booking_id")
-      .eq("passenger_id", userId)
-      .eq("driver_id", driverId)
-      .maybeSingle();
+  const { data: driver, error } = await supabaseAdmin.rpc('get_driver_details', { p_driver_id: driverId, p_user_id: userId });
 
-    // Allow if user is the driver or has a booking with this driver
-    if ((bookingError || !booking) && userId !== driverId) {
-      res
-        .status(403)
-        .json({ error: "Unauthorized to view this driver's details" });
+  if (error) {
+    if (error.message.includes('Unauthorized')) {
+      res.status(403).json({ error: 'Forbidden' });
       return;
     }
+    res.status(404).json({ error: 'Driver not found' });
+  }
 
-    const { data: driver, error } = await supabase
-      .from("driverTable")
-      .select(
-        `
-        driver_id,
-        first_name,
-        last_name,
-        phone_number,
-        profile_picture,
-        vehicle:vehicle_id (
-          model,
-          plate_number,
-          color,
-          passenger_capacity
-        )
-      `
-      )
-      .eq("driver_id", driverId)
-      .single();
-
-    if (error || !driver) {
-      console.error("Error fetching driver details:", error);
-      res.status(404).json({ error: "Driver not found" });
-      return;
-    }
-
-    res.status(200).json({
-      id: driver.driver_id,
-      name: `${driver.first_name} ${driver.last_name}`,
-      phone_number: driver.phone_number,
-      profile_picture: driver.profile_picture,
-      vehicle: driver.vehicle,
-    });
-  } catch (error) {
-    console.error("Error fetching driver details:", error);
-    res.status(500).json({ error: "Error fetching driver details" });
-  }
-};
-// simplified controllers for other states
-// driver arrived at the pickup location
-/**
- * DELETE: Redundant function - can be merged with startTrip
- * This status update can be handled directly in the startTrip function
- */
-export const driverArrived = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const { tripId: bookingId } = req.params;
-  const driverUserId = req.user?.id;
-  if (!driverUserId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  if (!bookingId || typeof bookingId !== "string") {
-    res.status(400).json({ error: "Missing booking ID" });
-    return;
-  }
-  try {
-    const { data: updatedBooking, error } = await supabase
-      .from("bookings")
-      .update({
-        ride_status: "ongoing",
-      })
-      .eq("booking_id", bookingId)
-      .eq("driver_id", driverUserId)
-      .eq("ride_status", "assigned")
-      .select()
-      .single();
-    if (error || !updatedBooking) {
-      console.error("Error updating booking:", error);
-      res
-        .status(400)
-        .json({ error: "Error updating booking status to driver_arrived" });
-      return;
-    }
-    if (!updatedBooking) {
-      res.status(404).json({ error: "Booking not found or not accepted" });
-      return;
-    }
-    res.status(200).json({
-      message: "Driver arrived at pickup location",
-      booking: updatedBooking,
-    });
-  } catch (error) {
-    console.error("Error updating booking status to driver_arrived:", error);
-    res.status(500).json({ error: "An unexpected error occured." });
-    return;
-  }
+  res.status(200).json({ driver });
 };
 // start of the trip
 /**
@@ -364,7 +260,7 @@ export const startTrip = async (req: Request, res: Response): Promise<void> => {
       return;
     }
     // check if the booking is in a valid state to start
-    if (!["assigned", "ongoing"].includes(bookingData.ride_status)) {
+    if (!["accepted", "ongoing"].includes(bookingData.ride_status)) {
       res
         .status(409)
         .json({ error: "Trip cannot be started in its current state." });
@@ -378,7 +274,7 @@ export const startTrip = async (req: Request, res: Response): Promise<void> => {
         started_at: new Date().toISOString(),
       })
       .eq("booking_id", bookingId)
-      .in("ride_status", ["assigned", "ongoing"])
+      .in("ride_status", ["accepted", "ongoing"])
       .select()
       .single();
     if (updateError || !updatedBooking) {
@@ -406,49 +302,18 @@ export const getCurrentTrip = async (
 ): Promise<void> => {
   const userId = req.user?.id;
   if (!userId) {
-    res.status(401).json({ error: "Unauthorized" });
+    res.status(401).json({ error: 'Unauthorized' });
     return;
   }
-  try {
-    const { data: booking, error } = await supabase
-      .from("bookings")
-      .select(
-        "*, driverTable: driver_id ( first_name, last_name, driver_id, vehicle_id ), passenger: id ( id ) "
-      )
-      .or(`id.eq.${userId},driver_id.eq.${userId}`)
-      .in("ride_status", ["assigned", "ongoing"])
-      .order("created_at", { ascending: false })
-      .maybeSingle();
-    if (error) {
-      console.error("Error fetching booking:", error);
-      res.status(500).json({ error: "Error fetching trip details" });
-      return;
-    }
-    if (!booking) {
-      res.status(404).json({ message: "No active trip found" });
-      return;
-    }
-    // fetch the driver's current location if the user is a passenger
-    if (booking.id === userId && booking.driver_id) {
-      const { data: driverLocation, error: locationError } = await supabase
-        .from("driverTable")
-        .select("current_location")
-        .eq("driver_id", booking.driver_id)
-        .single();
-      if (!locationError && driverLocation) {
-        booking.driver_location = driverLocation.current_location;
-        console.log("Driver location fetched:", booking.driver_location);
-      } else {
-        console.error("Error fetching driver location:", locationError);
-      }
-    }
-    res.status(200).json({ booking });
-    return;
-  } catch (error) {
-    console.error("Error fetching current trip:", error);
-    res.status(500).json({ error: "An unexpected error occured." });
+
+  const { data: trip,  error } = await supabaseAdmin.rpc('get_current_trip', { p_user_id: userId })
+
+  if (error || !trip) {
+    res.status(404).json({ error: 'No active trip found' });
     return;
   }
+
+  res.status(200).json({ trip });
 };
 // end of the trip
 /**
@@ -594,7 +459,7 @@ export const getTripDetails = async (
 
   try {
     // Fetch booking details with authorization via RPC
-    const { data: booking, error } = await supabase.rpc(
+    const { data: booking, error } = await supabaseAdmin.rpc(
       "get_booking_details",
       {
         p_booking_id: parseInt(tripId, 10),
@@ -654,40 +519,6 @@ export const getPassengerTripHistory = async (
     return;
   }
 };
-/**
- * KEEP: Important function for retrieving driver trip history
- * Used by drivers to view their past trips
- */
-export const getDriverTripHistory = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  const driverId = req.user?.id;
-  if (!driverId) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  try {
-    const { data: history, error } = await supabase
-      .from("bookings")
-      .select("*")
-      .eq("driver_id", driverId)
-      .order("created_at", { ascending: false });
-    if (error) {
-      console.error(
-        "Error fetching trip history for driver ${driver_id}:",
-        error
-      );
-      res.status(500).json({ error: "Error fetching trip history" });
-      return;
-    }
-    res.status(200).json(history || []);
-  } catch (error) {
-    console.error("Error fetching trip history for driver", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
 /**
  * DELETE: Commented out notification function
  * This function is already commented out and not being used
