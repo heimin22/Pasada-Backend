@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { supabase, supabaseAdmin } from "../utils/supabaseClient";
-// import admin from "firebase-admin";
+// import admin from "firebase-admin/app";
 // import { getMessaging } from "firebase-admin/messaging";
 
 /*
@@ -17,6 +17,7 @@ if (!admin.apps.length) {
 
 const SEARCH_RADIUS_METERS = 1000;
 const MAX_DRIVERS_TO_FIND = 32;
+const SEARCH_TIMEOUT_MS = 60000; // 1 minute timeout
 /**
  * KEEP: Core function for requesting a new trip
  * Handles passenger trip requests, finds nearby drivers, and assigns the closest one
@@ -60,90 +61,13 @@ export const requestTrip = async (
     return;
   }
   try {
-    const pickupLng = origin_longitude;
-    const pickupLat = origin_latitude;
-    // find nearby drivers via Postgres RPC with auto-expand fallback
+    // Create a trip request with "requested" status first
     const routeTripId = typeof route_trip === 'number' ? route_trip : parseInt(route_trip, 10);
-    const radiusMultipliers = [1, 2, 3, 4];
-    let drivers;
-    let searchError;
-    let usedRadius = SEARCH_RADIUS_METERS;
-    for (const multiplier of radiusMultipliers) {
-      const radius = SEARCH_RADIUS_METERS * multiplier;
-      // search purely by passenger location, ignoring route
-      const result = await supabase.rpc("find_available_drivers_for_route", {
-        max_drivers: MAX_DRIVERS_TO_FIND,
-        passenger_lat: pickupLat,
-        passenger_lon: pickupLng,
-        p_route_id: routeTripId,
-        search_radius_m: radius,
-      });
-      drivers = result.data;
-      searchError = result.error;
-      console.log(`Searching for drivers within ${radius}m:`, drivers?.length || 0);
-      if (searchError) {
-        console.error("Error finding drivers:", searchError);
-        break;
-      }
-      if (drivers && drivers.length > 0) {
-        usedRadius = radius;
-        break;
-      }
-    }
-    if (searchError) {
-      res.status(500).json({ error: "Error finding drivers" });
-      return;
-    }
-    if (!drivers || drivers.length === 0) {
-      console.log("No drivers found, performing diagnostics");
-      // Count total registered drivers
-      const { data: totalDrivers, error: totalDriversError } = await supabaseAdmin
-        .from("driverTable")
-        .select("driver_id");
-      const totalDriversCount = Array.isArray(totalDrivers) ? totalDrivers.length : 0;
-      if (totalDriversError) {
-        console.error("Error fetching total drivers count:", totalDriversError);
-      }
-      // Count busy drivers with accepted or ongoing trips
-      const { data: busyBookings, error: busyError } = await supabaseAdmin
-        .from("bookings")
-        .select("driver_id")
-        .in("ride_status", ["accepted", "ongoing"]);
-      if (busyError) {
-        console.error("Error fetching busy bookings:", busyError);
-      }
-      const busyDriverIds = Array.isArray(busyBookings)
-        ? busyBookings.map((b) => b.driver_id)
-        : [];
-      const uniqueBusyDriversCount = new Set(busyDriverIds).size;
-      // Compute available drivers
-      const availableDriversCount = totalDriversCount - uniqueBusyDriversCount;
-      // Determine reason why no driver was found
-      let reason = "";
-      if (totalDriversCount === 0) {
-        reason = "No registered drivers in the system";
-      } else if (availableDriversCount === 0) {
-        reason = "All drivers are currently busy";
-      } else {
-        reason = "Drivers available, but none within the search radius for the specified route";
-      }
-      res.status(404).json({
-        error: "No drivers found",
-        reason,
-        stats: {
-          totalDrivers: totalDriversCount,
-          busyDrivers: uniqueBusyDriversCount,
-          availableDrivers: availableDriversCount,
-        },
-      });
-      return;
-    }
-    // create a trip request
     const { data: newBooking, error: bookingError } = await supabaseAdmin
       .from("bookings")
       .insert({
         passenger_id: passengerUserId,
-        ride_status: "accepted",
+        ride_status: "requested",
         pickup_lat: origin_latitude,
         pickup_lng: origin_longitude,
         pickup_address: pickup_address,
@@ -157,34 +81,159 @@ export const requestTrip = async (
       })
       .select()
       .single();
+      
     if (bookingError) {
       console.error("Error creating trip request:", bookingError);
       res.status(500).json({ error: "Error creating trip request" });
       return;
     }
-    // automatically assign the closest driver
-    const assignedDriver = drivers[0];
-    const { data: updatedBooking, error: assignmentError } = await supabaseAdmin
-      .from("bookings")
-      .update({
-        driver_id: assignedDriver.driver_id,
-        ride_status: "accepted",
-        assigned_at: new Date().toISOString(),
-      })
-      .eq("booking_id", newBooking.booking_id)
-      .select()
-      .single();
-    if (assignmentError || !updatedBooking) {
-      console.error("Error assigning driver to booking:", assignmentError);
-      res.status(500).json({ error: "Error assigning driver" });
+    
+    // Now search for drivers with proper timeout
+    const pickupLng = origin_longitude;
+    const pickupLat = origin_latitude;
+    
+    // Define the search function that we'll race against a timeout
+    const findDrivers = async () => {
+      const radiusMultipliers = [1, 2, 3, 4];
+      let drivers;
+      let searchError;
+      let usedRadius = SEARCH_RADIUS_METERS;
+      
+      for (const multiplier of radiusMultipliers) {
+        const radius = SEARCH_RADIUS_METERS * multiplier;
+        console.log(`Searching for drivers within ${radius}m`);
+        
+        // search purely by passenger location, ignoring route
+        const result = await supabase.rpc("find_available_drivers_for_route", {
+          max_drivers: MAX_DRIVERS_TO_FIND,
+          passenger_lat: pickupLat,
+          passenger_lon: pickupLng,
+          p_route_id: routeTripId,
+          search_radius_m: radius,
+        });
+        
+        drivers = result.data;
+        searchError = result.error;
+        console.log(`Found ${drivers?.length || 0} drivers`);
+        
+        if (searchError) {
+          console.error("Error finding drivers:", searchError);
+          throw searchError;
+        }
+        
+        if (drivers && drivers.length > 0) {
+          usedRadius = radius;
+          return { drivers, usedRadius };
+        }
+      }
+      
+      // If we get here, no drivers were found
+      return { drivers: null, usedRadius };
+    };
+    
+    // Create a timeout promise
+    const timeout = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Driver search timed out after 1 minute'));
+      }, SEARCH_TIMEOUT_MS);
+    });
+    
+    // Race the search against the timeout
+    try {
+      const { drivers, usedRadius } = await Promise.race([
+        findDrivers(),
+        timeout
+      ]) as { drivers: any[] | null, usedRadius: number };
+      
+      // If we get here, the search completed before the timeout
+      if (!drivers || drivers.length === 0) {
+        console.log("No drivers found, performing diagnostics");
+        // Count total registered drivers
+        const { data: totalDrivers, error: totalDriversError } = await supabaseAdmin
+          .from("driverTable")
+          .select("driver_id");
+        const totalDriversCount = Array.isArray(totalDrivers) ? totalDrivers.length : 0;
+        if (totalDriversError) {
+          console.error("Error fetching total drivers count:", totalDriversError);
+        }
+        // Count busy drivers with accepted or ongoing trips
+        const { data: busyBookings, error: busyError } = await supabaseAdmin
+          .from("bookings")
+          .select("driver_id")
+          .in("ride_status", ["accepted", "ongoing"]);
+        if (busyError) {
+          console.error("Error fetching busy bookings:", busyError);
+        }
+        const busyDriverIds = Array.isArray(busyBookings)
+          ? busyBookings.map((b) => b.driver_id)
+          : [];
+        const uniqueBusyDriversCount = new Set(busyDriverIds).size;
+        // Compute available drivers
+        const availableDriversCount = totalDriversCount - uniqueBusyDriversCount;
+        // Determine reason why no driver was found
+        let reason = "";
+        if (totalDriversCount === 0) {
+          reason = "No registered drivers in the system";
+        } else if (availableDriversCount === 0) {
+          reason = "All drivers are currently busy";
+        } else {
+          reason = "Drivers available, but none within the search radius for the specified route";
+        }
+        res.status(404).json({
+          error: "No drivers found",
+          reason,
+          stats: {
+            totalDrivers: totalDriversCount,
+            busyDrivers: uniqueBusyDriversCount,
+            availableDrivers: availableDriversCount,
+          },
+          booking: newBooking
+        });
+        return;
+      }
+      
+      // Found a driver - update booking to "accepted" status
+      const assignedDriver = drivers[0];
+      const { data: updatedBooking, error: assignmentError } = await supabaseAdmin
+        .from("bookings")
+        .update({
+          driver_id: assignedDriver.driver_id,
+          ride_status: "accepted",
+          assigned_at: new Date().toISOString(),
+        })
+        .eq("booking_id", newBooking.booking_id)
+        .select()
+        .single();
+        
+      if (assignmentError || !updatedBooking) {
+        console.error("Error assigning driver to booking:", assignmentError);
+        res.status(500).json({ error: "Error assigning driver", booking: newBooking });
+        return;
+      }
+      
+      // respond with booking details and assigned driver
+      res.status(201).json({
+        message: "Trip requested and driver assigned successfully",
+        booking: updatedBooking,
+        driver: assignedDriver,
+      });
+    } catch (error) {
+      // Timed out or other search error
+      console.error("Error or timeout during driver search:", error);
+      if (error instanceof Error && error.message.includes('timed out')) {
+        res.status(408).json({ 
+          error: "Driver search timed out", 
+          message: "No drivers found within 1 minute. Please try again later.",
+          booking: newBooking
+        });
+      } else {
+        res.status(500).json({ 
+          error: "Error finding drivers", 
+          booking: newBooking 
+        });
+      }
       return;
     }
-    // respond with booking details and assigned driver
-    res.status(201).json({
-      message: "Trip requested and driver assigned successfully",
-      booking: updatedBooking,
-      driver: assignedDriver,
-    });
   } catch (error) {
     console.error("Error requesting trip:", error);
     res.status(500).json({ error: "Error requesting trip" });
@@ -192,32 +241,56 @@ export const requestTrip = async (
   }
 };
 /**
- * KEEP: Important function for retrieving driver information
- * Used by passengers to view details about their assigned driver
+ * Modified: Important function for retrieving driver information
+ * Updated to use booking ID instead of driver ID for better UX
  */
 export const getDriverDetails = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  const driverId = parseInt(req.params.driverId, 10);
-  const userId   = req.user?.id;
+  const bookingId = parseInt(req.params.bookingId, 10);
+  const userId = req.user?.id;
+  
+  console.log(`getDriverDetails called: bookingId=${bookingId}, userId=${userId}`);
+  
   if (!userId) {
+    console.log('getDriverDetails: Unauthorized - no user ID');
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
 
-  const { data: driver, error } = await supabaseAdmin.rpc('get_driver_details', { p_driver_id: driverId, p_user_id: userId });
+  try {
+    console.log(`Fetching driver details for booking ${bookingId}`);
+    const { data: driverData, error } = await supabaseAdmin.rpc(
+      'get_driver_details_by_booking',
+      { 
+        p_booking_id: bookingId, 
+        p_user_id: userId 
+      }
+    );
 
-  if (error) {
-    if (error.message.includes('Unauthorized')) {
-      res.status(403).json({ error: 'Forbidden' });
+    if (error) {
+      console.error("Error fetching driver details from Supabase RPC:", error);
+      if (error.message.includes('Unauthorized')) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+      res.status(404).json({ error: error.message || 'Driver details not found' });
       return;
     }
-    res.status(404).json({ error: 'Driver not found' });
-  }
 
-  res.status(200).json({ driver });
-};
+    if (driverData && driverData.length > 0) {
+      res.status(200).json({ driver: driverData[0] });
+      return;
+    } else {
+      res.status(404).json({ error: 'Driver details not found' });
+      return;
+    }
+  } catch (error) {
+    console.error("Error in getDriverDetails:", error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
 // start of the trip
 /**
  * KEEP: Core function for starting a trip
