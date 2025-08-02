@@ -3,17 +3,26 @@ import driverRoutes from "./routes/driverRoutes";
 import tripRoutes from "./routes/tripRoutes";
 import cors from "cors";
 import dotenv from "dotenv";
+import axios from "axios"; 
 import { setupRealtimeSubscriptions } from "./utils/realtimeSubscriptions";
+import { createClient } from "@supabase/supabase-js";
 import asyncHandler from "express-async-handler";
 import { authenticate, passengerMiddleware, driverMiddleware } from "./middleware/authMiddleware";
 import { requestTrip, getTripDetails, getDriverDetails } from "./controllers/tripController";
 import { updateDriverAvailability, updateDriverLocation } from "./controllers/driverController";
 
 dotenv.config();
+
 console.log("This is the Pasada Backend Server");
 const app: Express = express();
 const portEnv = process.env.PORT;
 const port = portEnv ? parseInt(portEnv, 10) : 8080;
+const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+if (!GOOGLE_MAPS_API_KEY) {
+  console.error('Missing GOOGLE_MAPS_API_KEY environment variable');
+  process.exit(1);
+}
 
 // Check if port is a valid number
 if (isNaN(port)) {
@@ -52,6 +61,69 @@ app.post(
   asyncHandler(driverMiddleware as express.RequestHandler),
   asyncHandler(updateDriverLocation)
 );
+
+app.post('/api/route-traffic', async (req, res) => {
+  try {
+    const { origin, destination } = req.body;
+    const { data: routeData, error } = await supabase
+      .from('official_routes')
+      .select(
+        'origin_lat, origin_lng, destination_lat, destination_lng, intermediate_coordinates'
+      )
+      .eq('origin_name', origin)
+      .eq('destination_name', destination)
+      .single();
+    if (error || !routeData) {
+      res.status(404).json({ error: 'Route not found or incomplete coordinates' });
+      return;
+    }
+
+    const {
+      origin_lat,
+      origin_lng,
+      destination_lat,
+      destination_lng,
+      intermediate_coordinates
+    } = routeData;
+
+    let waypoints = '';
+    if (Array.isArray(intermediate_coordinates) && intermediate_coordinates.length) {
+      waypoints = intermediate_coordinates
+        .map((coord: [number, number]) => `${coord[0]},${coord[1]}`)
+        .join('|');
+    }
+
+    const params = new URLSearchParams({
+      origin: `${origin_lat},${origin_lng}`,
+      destination: `${destination_lat},${destination_lng}`,
+      departure_time: 'now',
+      traffic_model: 'best_guess',
+      key: GOOGLE_MAPS_API_KEY!
+    });
+
+    if (waypoints) {
+      params.append('waypoints', waypoints);
+    }
+
+    const url = `https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`;
+    const apiRes = await axios.get(url);
+
+    if (apiRes.status !== 200) {
+      res.status(500).json({ error: 'Failed to fetch route traffic' });
+      return;
+    }
+
+    const leg = apiRes.data.routes[0].legs[0];
+    const duration = leg.duration.text;
+    const durationInTraffic = leg.duration_in_traffic?.text || duration;
+
+    // Return simplified traffic info
+    res.json({ origin, destination, duration, durationInTraffic });
+  } catch (err: any) { 
+    console.error('Error fetching route traffic:', err);
+    res.status(500).json({ error: 'Failed to fetch route traffic' });
+  }
+});
 
 // Error handling middleware
 app.use(
@@ -109,3 +181,5 @@ app.listen(port, '0.0.0.0', () => {
 });
 
 export { app };
+
+
