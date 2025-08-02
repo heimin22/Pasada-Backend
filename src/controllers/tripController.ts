@@ -1,19 +1,5 @@
 import { Request, Response } from "express";
 import { supabase, supabaseAdmin } from "../utils/supabaseClient";
-// import admin from "firebase-admin/app";
-// import { getMessaging } from "firebase-admin/messaging";
-
-/*
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId:   process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey:  process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    }),
-  });
-}
-*/
 
 const SEARCH_RADIUS_METERS = 1000;
 const MAX_DRIVERS_TO_FIND = 32;
@@ -36,7 +22,12 @@ export const requestTrip = async (
     route_trip,
     fare,
     payment_method,
+    seat_type: seat_type_snake,
+    seatType: seat_type_camel,
   } = req.body;
+
+  // Accept seat_type from either snake_case or camelCase
+  const seat_type = seat_type_snake !== undefined ? seat_type_snake : seat_type_camel;
 
   // Debug: log incoming request payload
   console.log('requestTrip payload:', JSON.stringify(req.body));
@@ -76,6 +67,7 @@ export const requestTrip = async (
         dropoff_address: dropoff_address,
         fare: fare,
         payment_method: payment_method,
+        seat_type: seat_type,
         created_at: new Date().toISOString(),
         route_id: routeTripId,
       })
@@ -87,6 +79,9 @@ export const requestTrip = async (
       res.status(500).json({ error: "Error creating trip request" });
       return;
     }
+    
+    // Debug: log newly created booking to check seat_type
+    console.log("Inserted newBooking with seat_type:", newBooking?.seat_type, newBooking);
     
     // Now search for drivers with proper timeout
     const pickupLng = origin_longitude;
@@ -211,6 +206,9 @@ export const requestTrip = async (
         return;
       }
       
+      // Debug: log updated booking after assignment to check seat_type persists
+      console.log("Updated booking after assignment with seat_type:", updatedBooking?.seat_type, updatedBooking);
+      
       // respond with booking details and assigned driver
       res.status(201).json({
         message: "Trip requested and driver assigned successfully",
@@ -280,6 +278,7 @@ export const getDriverDetails = async (
     }
 
     if (driverData && driverData.length > 0) {
+      console.log('getDriverDetails - fetched driver details:', driverData[0]);
       res.status(200).json({ driver: driverData[0] });
       return;
     } else {
@@ -531,24 +530,22 @@ export const getTripDetails = async (
   }
 
   try {
-    // Fetch booking details with authorization via RPC
-    const { data: booking, error } = await supabaseAdmin.rpc(
-      "get_booking_details",
-      {
-        p_booking_id: parseInt(tripId, 10),
-        p_user_id: userId,
-      }
-    );
+    // Fetch booking details directly (include seat_type)
+    const { data: booking, error } = await supabaseAdmin
+      .from("bookings")
+      .select("*")
+      .eq("booking_id", parseInt(tripId, 10))
+      .single();
 
     if (error || !booking) {
-      if (error?.message.includes("Booking not found")) {
-        res.status(404).json({ error: "Trip not found" });
-      } else if (error?.message.includes("Unauthorized")) {
-        res.status(403).json({ error: "Unauthorized to view this trip" });
-      } else {
-        console.error("Error fetching trip details:", error);
-        res.status(500).json({ error: "An unexpected error occurred." });
-      }
+      console.error("Error fetching trip details:", error);
+      res.status(404).json({ error: "Trip not found" });
+      return;
+    }
+
+    // Ensure the requesting user is part of this trip
+    if (booking.passenger_id !== userId && booking.driver_id !== userId) {
+      res.status(403).json({ error: "Unauthorized to view this trip" });
       return;
     }
 
@@ -592,110 +589,3 @@ export const getPassengerTripHistory = async (
     return;
   }
 };
-/**
- * DELETE: Commented out notification function
- * This function is already commented out and not being used
- */
-/*
-const sendDriverNotifications = async (drivers: any[], booking: any) => {
-  try {
-    // Get driver IDs
-    const driverIds = drivers.map((driver) => driver.driver_id);
-
-    // Get FCM tokens for these drivers
-    const { data: tokenData, error: tokenError } = await supabase
-      .from("push_tokens")
-      .select("user_id, token")
-      .in("user_id", driverIds);
-
-    if (tokenError) {
-      console.error("Error fetching driver FCM tokens:", tokenError);
-      return;
-    }
-
-    // Create a map of driver IDs to tokens
-    const tokenMap = tokenData.reduce(
-      (map: { [key: string]: string }, item: any) => {
-        map[item.user_id] = item.token;
-        return map;
-      },
-      {}
-    );
-
-    // Prepare and send notifications
-    const messaging = getMessaging();
-    const notificationPromises = drivers.map((driver) => {
-      const token = tokenMap[driver.driver_id];
-      if (!token) return Promise.resolve(); // Skip if no token
-
-      return messaging.send({
-        token,
-        notification: {
-          title: "New Trip Request",
-          body: `New trip request from ${booking.origin_address} to ${booking.destination_address}`,
-        },
-        data: {
-          booking_id: booking.booking_id.toString(),
-          type: "new_trip_request",
-          origin: booking.origin_address,
-          destination: booking.destination_address,
-          fare: booking.fare.toString(),
-        },
-        android: {
-          priority: "high",
-        },
-      });
-    });
-
-    await Promise.all(notificationPromises);
-    console.log(`Notifications sent to ${drivers.length} drivers`);
-  } catch (error) {
-    console.error("Error sending driver notifications:", error);
-  }
-};
-*/
-
-/**
- * DELETE: Commented out notification function
- * This function is already commented out and not being used
- */
-/*
-// Helper to notify passenger when no drivers are found
-const sendPassengerNoDriversNotification = async (
-  userId: string,
-  bookingId: string | number
-) => {
-  try {
-    const { data: tokenData, error: tokenError } = await supabase
-      .from("push_tokens")
-      .select("token")
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (tokenError || !tokenData) {
-      console.error("Error fetching passenger FCM token:", tokenError);
-      return;
-    }
-    const token = tokenData.token;
-    const messaging = getMessaging();
-    await messaging.send({
-      token,
-      notification: {
-        title: "No Drivers Available",
-        body: "Sorry, there are no available drivers for your trip request right now.",
-      },
-      data: {
-        booking_id: bookingId.toString(),
-        type: "no_drivers_found",
-      },
-      android: {
-        priority: "high",
-      },
-    });
-  } catch (error) {
-    console.error("Error sending passenger notification:", error);
-  }
-};
-*/
-
-
-
