@@ -22,12 +22,8 @@ export const requestTrip = async (
     route_trip,
     fare,
     payment_method,
-    seat_type: seat_type_snake,
-    seatType: seat_type_camel,
+    seat_type,
   } = req.body;
-
-  // Accept seat_type from either snake_case or camelCase
-  const seat_type = seat_type_snake !== undefined ? seat_type_snake : seat_type_camel;
 
   // Debug: log incoming request payload
   console.log('requestTrip payload:', JSON.stringify(req.body));
