@@ -13,6 +13,11 @@ import { authenticate, passengerMiddleware, driverMiddleware } from "./middlewar
 import { requestTrip, getTripDetails, getDriverDetails } from "./controllers/tripController";
 import { updateDriverAvailability, updateDriverLocation } from "./controllers/driverController";
 import { getRouteTraffic } from "./controllers/routeController";
+import { DatabaseService } from "./services/databaseService";
+import { GoogleMapsService } from "./services/googleMapsService";
+import { GeminiService } from "./services/geminiService";
+import { AnalyticsService } from "./services/analyticsService";
+import { AnalyticsController } from "./controllers/analyticsController";
 
 dotenv.config();
 
@@ -20,7 +25,6 @@ console.log("This is the Pasada Backend Server");
 const app: Express = express();
 const portEnv = process.env.PORT;
 const port = portEnv ? parseInt(portEnv, 10) : 8080;
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 if (!GOOGLE_MAPS_API_KEY) {
   console.error('Missing GOOGLE_MAPS_API_KEY environment variable');
@@ -53,6 +57,32 @@ app.use(limiter);
 // REST endpoints
 app.use("/api/drivers", driverRoutes);
 app.use("/api/trips", tripRoutes);
+
+// Initialize services
+const databaseService = new DatabaseService(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_ANON_KEY!
+);
+const googleMapsService = new GoogleMapsService(GOOGLE_MAPS_API_KEY);
+const geminiService = new GeminiService(process.env.GEMINI_API_KEY!);
+const analyticsService = new AnalyticsService(databaseService, geminiService, googleMapsService);
+const analyticsController = new AnalyticsController(analyticsService);
+
+// Analytics endpoints
+app.get('/api/analytics/routes/:routeId', asyncHandler(analyticsController.getRouteAnalytics));
+
+// Routes
+app.get('/api/analytics/routes/:routeId', (req, res) => 
+  analyticsController.getRouteAnalytics(req, res)
+);
+
+app.get('/api/analytics/routes', (req, res) => 
+  analyticsController.getAllRoutesAnalytics(req, res)
+);
+
+app.post('/api/analytics/refresh', (req, res) => 
+  analyticsController.refreshTrafficData(req, res)
+);
 
 app.post(
   "/api/bookings/assign-driver",
