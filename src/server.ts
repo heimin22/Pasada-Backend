@@ -4,6 +4,8 @@ import tripRoutes from "./routes/tripRoutes";
 import cors from "cors";
 import dotenv from "dotenv";
 import axios from "axios"; 
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
 import { setupRealtimeSubscriptions } from "./utils/realtimeSubscriptions";
 import { createClient } from "@supabase/supabase-js";
 import asyncHandler from "express-async-handler";
@@ -34,9 +36,19 @@ if (isNaN(port)) {
 // Set up Supabase Realtime subscriptions
 setupRealtimeSubscriptions();
 
+// Middleware
+app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Rate Limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: "Too many requests, please try again later.",
+});
+app.use(limiter);
 
 // REST endpoints
 app.use("/api/drivers", driverRoutes);
