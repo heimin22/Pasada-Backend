@@ -56,4 +56,18 @@ export class AnalyticsController {
           });
         }
       }
+
+      // Get concise summaries for all routes
+      async getConciseSummaries(req: express.Request, res: express.Response): Promise<void> {
+        try {
+          const summaries = await this.analyticsService.getConciseSummaries();
+          res.json(summaries);
+        } catch (error) {
+          console.error('Error in getConciseSummaries:', error);
+          res.status(500).json({ 
+            error: 'Failed to generate concise summaries',
+            message: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }
 }

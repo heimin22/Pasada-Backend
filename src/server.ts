@@ -80,6 +80,10 @@ app.get('/api/analytics/routes', (req, res) =>
   analyticsController.getAllRoutesAnalytics(req, res)
 );
 
+app.get('/api/analytics/summaries', (req, res) => 
+  analyticsController.getConciseSummaries(req, res)
+);
+
 app.post('/api/analytics/refresh', (req, res) => 
   analyticsController.refreshTrafficData(req, res)
 );

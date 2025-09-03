@@ -65,6 +65,16 @@ export class AnalyticsService {
     }
   }
 
+  async getConciseSummaries(): Promise<Array<{ routeId: number; routeName: string; averageDensity: number; summary: string }>> {
+    const analytics = await this.getAllRoutesAnalytics();
+    return analytics.map(a => ({
+      routeId: a.routeId,
+      routeName: a.routeName,
+      averageDensity: a.summary.averageDensity,
+      summary: a.geminiInsights
+    }));
+  }
+
   private async getHistoricalTrafficData(route: OfficialRoute): Promise<TrafficData[]> {
     // First, try to get from database
     let historicalData = await this.databaseService.getHistoricalTrafficData(route.officialroute_id, 7);
@@ -72,10 +82,20 @@ export class AnalyticsService {
     // If no data in database, fetch from Google Maps
     if (historicalData.length === 0) {
       console.log(`Fetching fresh traffic data for route ${route.route_name}`);
+      // Prefer coordinates if available; fallback to names
+      const origin = route.origin_lat !== undefined && route.origin_lng !== undefined
+        ? `${route.origin_lat},${route.origin_lng}`
+        : route.origin_name;
+      const destination = route.destination_lat !== undefined && route.destination_lng !== undefined
+        ? `${route.destination_lat},${route.destination_lng}`
+        : route.destination_name;
+      const waypoints = Array.isArray(route.intermediate_coordinates) ? route.intermediate_coordinates : undefined;
+
       historicalData = await this.googleMapsService.getHistoricalTrafficPattern(
-        route.origin_name,
-        route.destination_name,
-        7
+        origin,
+        destination,
+        7,
+        waypoints
       );
 
       // Set route ID and save to database

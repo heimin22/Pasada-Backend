@@ -15,7 +15,14 @@ export class GeminiService {
             const result = await model.generateContent(prompt);
             const response = await result.response;
 
-            return response.text();
+            const text = response.text().trim();
+            // Safety: ensure at most two sentences
+            const twoSentences = text
+              .replace(/\n+/g, ' ')
+              .split(/(?<=[.!?])\s+/)
+              .slice(0, 2)
+              .join(' ');
+            return twoSentences;
         } catch (error) {
             console.error('Error analyzing traffic data:', error);
             throw new Error('Failed to analyze traffic data with Gemini');
@@ -25,34 +32,21 @@ export class GeminiService {
     private buildAnalysisPrompt(analytics: Omit<TrafficAnalytics, 'geminiInsights'>): string {
         const { routeName, historicalData, predictions, summary } = analytics;
 
-        return `
-        Analyze the following traffic data for route "${routeName}" and provide insights:
-  
-        HISTORICAL DATA SUMMARY:
-        - Average traffic density: ${(summary.averageDensity * 100).toFixed(1)}%
-        - Peak traffic hours: ${summary.peakHours.join(', ')}
-        - Low traffic hours: ${summary.lowTrafficHours.join(', ')}
-        - Weekday vs Weekend density: ${(summary.weekdayVsWeekend.weekday * 100).toFixed(1)}% vs ${(summary.weekdayVsWeekend.weekend * 100).toFixed(1)}%
-        - Overall trend: ${summary.trend}
-  
-        DATA POINTS:
-        ${historicalData.slice(-20).map(data => 
-          `${data.timestamp.toISOString()}: ${(data.trafficDensity * 100).toFixed(1)}% density`
-        ).join('\n')}
-  
-        PREDICTIONS FOR NEXT WEEK:
-        ${predictions.slice(0, 7).map(pred => 
-          `${pred.date.toDateString()} ${pred.timeOfDay}: ${(pred.predictedDensity * 100).toFixed(1)}% (confidence: ${(pred.confidence * 100).toFixed(1)}%)`
-        ).join('\n')}
-  
-        Please provide:
-        1. Key insights about traffic patterns
-        2. Recommendations for optimal travel times
-        3. Factors that might be influencing traffic density
-        4. Suggestions for route optimization or traffic management
-        5. Notable trends or anomalies in the data
-  
-        Keep the response concise but informative, focusing on actionable insights.
-      `;
+        return `You are generating a user-facing summary for motorists.
+Provide exactly two short sentences, direct and plain English, no bullet points.
+Mention congestion level briefly and one practical tip, nothing else.
+
+Context for route "${routeName}":
+- Avg density: ${(summary.averageDensity * 100).toFixed(0)}%
+- Peak hours: ${summary.peakHours.join(', ')}
+- Low hours: ${summary.lowTrafficHours.join(', ')}
+- Weekday vs Weekend: ${(summary.weekdayVsWeekend.weekday * 100).toFixed(0)}% vs ${(summary.weekdayVsWeekend.weekend * 100).toFixed(0)}%
+- Trend: ${summary.trend}
+
+Recent data points:
+${historicalData.slice(-10).map(d => `${d.timestamp.toISOString()} ${(d.trafficDensity * 100).toFixed(0)}%`).join('\n')}
+
+Predictions next days:
+${predictions.slice(0, 3).map(p => `${p.date.toDateString()} ${p.timeOfDay} ${(p.predictedDensity * 100).toFixed(0)}%`).join('\n')}`;
     }
 }
