@@ -42,11 +42,11 @@ export class AnalyticsController {
       // Refresh traffic data for all routes
       async refreshTrafficData(req: express.Request, res: express.Response): Promise<void> {
         try {
-          // This would trigger a fresh data collection
-          const routes = await this.analyticsService.getAllRoutesAnalytics();
+          // This will generate realistic traffic data for all routes
+          const result = await this.analyticsService.refreshAllTrafficData();
           res.json({ 
-            message: 'Traffic data refreshed successfully',
-            routesUpdated: routes.length
+            message: result.message,
+            routesUpdated: result.routesUpdated
           });
         } catch (error) {
           console.error('Error in refreshTrafficData:', error);
