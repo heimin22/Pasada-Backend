@@ -9,17 +9,21 @@ export class GoogleMapsService {
         this.apiKey = apiKey;
     }
 
-    async getTrafficData(origin: string, destination: string): Promise<TrafficData> {
+    async getTrafficData(origin: string, destination: string, waypoints?: Array<{ lat: number; lng: number }>): Promise<TrafficData> {
         try {
-            const response = await axios.get(`${this.baseUrl}/directions/json`, {
-                params: {
-                    origin,
-                    destination,
-                    departure_time: 'now',
-                    traffic_model: 'best_guess',
-                    key: this.apiKey
-                }
-            });
+            const params: Record<string, string> = {
+                origin,
+                destination,
+                departure_time: 'now',
+                traffic_model: 'best_guess',
+                key: this.apiKey
+            };
+
+            if (waypoints && waypoints.length > 0) {
+                params['waypoints'] = waypoints.map(wp => `via:${wp.lat},${wp.lng}`).join('|');
+            }
+
+            const response = await axios.get(`${this.baseUrl}/directions/json`, { params });
 
             const data = response.data;
 
@@ -49,7 +53,7 @@ export class GoogleMapsService {
         }
     }
 
-    async getHistoricalTrafficPattern(prigin: string, destination: string, days: number = 7): Promise<TrafficData[]> {
+    async getHistoricalTrafficPattern(origin: string, destination: string, days: number = 7, waypoints?: Array<{ lat: number; lng: number }>): Promise<TrafficData[]> {
         const historicalData: TrafficData[] = [];
         const now = new Date();
 
@@ -62,7 +66,7 @@ export class GoogleMapsService {
                     sampleTime.setHours(hour, 0, 0, 0);
 
                     // use historical traffic if available
-                    const trafficData = await this.getTrafficData(origin, destination);
+                    const trafficData = await this.getTrafficData(origin, destination, waypoints);
                     trafficData.timestamp = sampleTime;
 
                     // adjust density based on typical patterns
