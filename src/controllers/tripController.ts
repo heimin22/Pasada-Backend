@@ -66,8 +66,8 @@ export const requestTrip = async (
         fare: fare,
         payment_method: payment_method,
         seat_type: seat_type,
-        passenger_type: passenger_type || null,
-        passenger_id_image_path: passenger_id_image_path || null,
+        passenger_type: passenger_type,
+        passenger_id_image_path: passenger_id_image_path,
         created_at: new Date().toISOString(),
         route_id: routeTripId,
       })
