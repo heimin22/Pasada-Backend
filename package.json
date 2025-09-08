@@ -38,7 +38,8 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:api": "node test-api.js",
-    "populate-traffic": "node populate-traffic-data.js"
+    "populate-traffic": "node populate-traffic-data.js",
+    "test:driver-function": "node test-driver-function.js"
   },
   "engines": {
     "node": ">=18.0.0"
