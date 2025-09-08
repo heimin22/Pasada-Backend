@@ -1,9 +1,20 @@
 import { Request, Response } from "express";
 import { supabase, supabaseAdmin } from "../utils/supabaseClient";
+import { RealTimeAnalyticsService } from "../services/realTimeAnalyticsService";
+import { DatabaseService } from "../services/databaseService";
+import { GoogleMapsService } from "../services/googleMapsService";
 
 const SEARCH_RADIUS_METERS = 1000;
 const MAX_DRIVERS_TO_FIND = 32;
 const SEARCH_TIMEOUT_MS = 60000; // 1 minute timeout
+
+// Initialize analytics services
+const databaseService = new DatabaseService(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_ANON_KEY!
+);
+const googleMapsService = new GoogleMapsService(process.env.GOOGLE_MAPS_API_KEY!);
+const realTimeAnalyticsService = new RealTimeAnalyticsService(databaseService, googleMapsService);
 /**
  * KEEP: Core function for requesting a new trip
  * Handles passenger trip requests, finds nearby drivers, and assigns the closest one
@@ -424,6 +435,16 @@ export const completeTrip = async (
       res.status(400).json({ error: "Error completing trip" });
       return;
     }
+
+    // Automatically collect analytics data from the completed trip
+    try {
+      console.log(`Automatically collecting analytics for completed trip ${bookingId}`);
+      await realTimeAnalyticsService.processTripCompletion(bookingData);
+    } catch (analyticsError) {
+      // Log error but don't fail the trip completion
+      console.error(`Failed to process analytics for trip ${bookingId}:`, analyticsError);
+    }
+
     // make the driver available again after the trip
     res
       .status(200)

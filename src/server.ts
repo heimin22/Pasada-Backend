@@ -18,6 +18,7 @@ import { GoogleMapsService } from "./services/googleMapsService";
 import { GeminiService } from "./services/geminiService";
 import { AnalyticsService } from "./services/analyticsService";
 import { AnalyticsController } from "./controllers/analyticsController";
+import { analyticsTrackingMiddleware, routeTrafficAnalyticsMiddleware, analyticsErrorHandler } from "./middleware/analyticsMiddleware";
 
 dotenv.config();
 
@@ -53,6 +54,9 @@ const limiter = rateLimit({
   message: "Too many requests, please try again later.",
 });
 app.use(limiter);
+
+// Analytics tracking middleware - must be before routes
+app.use(analyticsTrackingMiddleware);
 
 // REST endpoints
 app.use("/api/drivers", driverRoutes);
@@ -111,8 +115,12 @@ app.post(
 
 app.post(
   '/api/route-traffic',
+  routeTrafficAnalyticsMiddleware,
   asyncHandler(getRouteTraffic)
 );
+
+// Analytics error handling middleware
+app.use(analyticsErrorHandler);
 
 // Error handling middleware
 app.use(

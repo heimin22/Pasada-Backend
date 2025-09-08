@@ -102,4 +102,31 @@ export class GoogleMapsService {
 
         return Math.min(baseDensity * multiplier, 1);
     }
+
+    async getEstimatedDuration(origin: string, destination: string): Promise<number> {
+        try {
+            const params = {
+                origin,
+                destination,
+                departure_time: 'now',
+                traffic_model: 'best_guess',
+                key: this.apiKey
+            };
+
+            const response = await axios.get(`${this.baseUrl}/directions/json`, { params });
+            const data = response.data;
+
+            if (data.status !== 'OK' || !data.routes.length) {
+                throw new Error(`Google Maps API returned status: ${data.status}`);
+            }
+
+            const route = data.routes[0];
+            const legs = route.legs[0];
+            
+            return legs.duration.value; // Duration in seconds
+        } catch (error) {
+            console.error('Error getting estimated duration:', error);
+            throw new Error('Failed to get estimated duration from Google Maps API');
+        }
+    }
 }
