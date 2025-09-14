@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { OfficialRoute } from "../types/route";
-import { TrafficData } from "../types/traffic";
+import { TrafficData, TripAnalyticsData, RouteUsageData } from "../types/traffic";
 
 export class DatabaseService {
     private supabase: SupabaseClient;
@@ -86,6 +86,124 @@ export class DatabaseService {
               }));
         } catch (error) {
             console.error('Error fetching historical traffic data:', error);
+            return [];
+        }
+    }
+
+    // New methods for trip-based analytics
+    async saveTripAnalyticsData(tripData: TripAnalyticsData): Promise<void> {
+        try {
+            const { error } = await this.supabase
+                .from('trip_analytics')
+                .insert({
+                    trip_id: tripData.tripId,
+                    route_id: tripData.routeId,
+                    passenger_id: tripData.passengerId,
+                    driver_id: tripData.driverId,
+                    start_time: tripData.startTime.toISOString(),
+                    end_time: tripData.endTime.toISOString(),
+                    actual_duration: tripData.actualDuration,
+                    estimated_duration: tripData.estimatedDuration,
+                    actual_distance: tripData.actualDistance,
+                    pickup_lat: tripData.pickupCoordinates.lat,
+                    pickup_lng: tripData.pickupCoordinates.lng,
+                    dropoff_lat: tripData.dropoffCoordinates.lat,
+                    dropoff_lng: tripData.dropoffCoordinates.lng,
+                    traffic_condition: tripData.trafficCondition,
+                    completion_status: tripData.completionStatus,
+                    fare: tripData.fare,
+                    created_at: new Date().toISOString()
+                });
+            
+            if (error) throw error;
+            console.log(`Trip analytics saved for trip ${tripData.tripId}`);
+        } catch (error) {
+            console.error('Error saving trip analytics data:', error);
+            throw new Error('Failed to save trip analytics data to database');
+        }
+    }
+
+    async saveRouteUsageData(usageData: RouteUsageData): Promise<void> {
+        try {
+            const { error } = await this.supabase
+                .from('route_usage_analytics')
+                .insert({
+                    route_id: usageData.routeId,
+                    timestamp: usageData.timestamp.toISOString(),
+                    endpoint: usageData.endpoint,
+                    method: usageData.method,
+                    user_id: usageData.userId,
+                    user_type: usageData.userType,
+                    response_time: usageData.responseTime,
+                    status_code: usageData.statusCode,
+                    created_at: new Date().toISOString()
+                });
+            
+            if (error) throw error;
+        } catch (error) {
+            console.error('Error saving route usage data:', error);
+            // Don't throw here as this shouldn't break the main request
+        }
+    }
+
+    async getTripAnalyticsData(routeId: number, days: number = 30): Promise<TripAnalyticsData[]> {
+        try {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+
+            const { data, error } = await this.supabase
+                .from('trip_analytics')
+                .select('*')
+                .eq('route_id', routeId)
+                .gte('start_time', startDate.toISOString())
+                .order('start_time', { ascending: true });
+
+            if (error) throw error;
+
+            return (data || []).map(item => ({
+                tripId: item.trip_id,
+                routeId: item.route_id,
+                passengerId: item.passenger_id,
+                driverId: item.driver_id,
+                startTime: new Date(item.start_time),
+                endTime: new Date(item.end_time),
+                actualDuration: item.actual_duration,
+                estimatedDuration: item.estimated_duration,
+                actualDistance: item.actual_distance,
+                pickupCoordinates: {
+                    lat: item.pickup_lat,
+                    lng: item.pickup_lng
+                },
+                dropoffCoordinates: {
+                    lat: item.dropoff_lat,
+                    lng: item.dropoff_lng
+                },
+                trafficCondition: item.traffic_condition,
+                completionStatus: item.completion_status,
+                fare: item.fare
+            }));
+        } catch (error) {
+            console.error('Error fetching trip analytics data:', error);
+            return [];
+        }
+    }
+
+    async getRouteUsageStats(routeId: number, days: number = 7): Promise<any> {
+        try {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+
+            const { data, error } = await this.supabase
+                .from('route_usage_analytics')
+                .select('*')
+                .eq('route_id', routeId)
+                .gte('timestamp', startDate.toISOString());
+
+            if (error) throw error;
+
+            return data || [];
+        } catch (error) {
+            console.error('Error fetching route usage stats:', error);
             return [];
         }
     }
