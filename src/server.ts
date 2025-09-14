@@ -17,8 +17,10 @@ import { DatabaseService } from "./services/databaseService";
 import { GoogleMapsService } from "./services/googleMapsService";
 import { GeminiService } from "./services/geminiService";
 import { AnalyticsService } from "./services/analyticsService";
+import { ExternalAnalyticsService } from "./services/externalAnalyticsService";
 import { AnalyticsController } from "./controllers/analyticsController";
 import { analyticsTrackingMiddleware, routeTrafficAnalyticsMiddleware, analyticsErrorHandler } from "./middleware/analyticsMiddleware";
+import analyticsRoutes from "./routes/analyticsRoutes";
 
 dotenv.config();
 
@@ -61,6 +63,7 @@ app.use(analyticsTrackingMiddleware);
 // REST endpoints
 app.use("/api/drivers", driverRoutes);
 app.use("/api/trips", tripRoutes);
+app.use("/api/analytics", analyticsRoutes);
 
 // Initialize services
 const databaseService = new DatabaseService(
@@ -70,27 +73,24 @@ const databaseService = new DatabaseService(
 const googleMapsService = new GoogleMapsService(GOOGLE_MAPS_API_KEY);
 const geminiService = new GeminiService(process.env.GEMINI_API_KEY!);
 const analyticsService = new AnalyticsService(databaseService, geminiService, googleMapsService);
-const analyticsController = new AnalyticsController(analyticsService);
+const externalAnalyticsService = new ExternalAnalyticsService(process.env.ANALYTICS_API_URL);
+const analyticsController = new AnalyticsController(analyticsService, externalAnalyticsService);
 
 // Analytics endpoints
-app.get('/api/analytics/routes/:routeId', asyncHandler(analyticsController.getRouteAnalytics));
+app.get('/api/analytics/routes/:routeId', asyncHandler(analyticsController.getRouteAnalytics.bind(analyticsController)));
+app.get('/api/analytics/routes', asyncHandler(analyticsController.getAllRoutesAnalytics.bind(analyticsController)));
+app.get('/api/analytics/summaries', asyncHandler(analyticsController.getConciseSummaries.bind(analyticsController)));
+app.post('/api/analytics/refresh', asyncHandler(analyticsController.refreshTrafficData.bind(analyticsController)));
 
-// Routes
-app.get('/api/analytics/routes/:routeId', (req, res) => 
-  analyticsController.getRouteAnalytics(req, res)
-);
-
-app.get('/api/analytics/routes', (req, res) => 
-  analyticsController.getAllRoutesAnalytics(req, res)
-);
-
-app.get('/api/analytics/summaries', (req, res) => 
-  analyticsController.getConciseSummaries(req, res)
-);
-
-app.post('/api/analytics/refresh', (req, res) => 
-  analyticsController.refreshTrafficData(req, res)
-);
+// External Analytics Integration Endpoints
+app.get('/api/analytics/external/health', asyncHandler(analyticsController.getExternalAnalyticsHealth.bind(analyticsController)));
+app.get('/api/analytics/external/traffic/status', asyncHandler(analyticsController.getTrafficAnalyticsStatus.bind(analyticsController)));
+app.post('/api/analytics/external/traffic/run', asyncHandler(analyticsController.runTrafficAnalytics.bind(analyticsController)));
+app.get('/api/analytics/external/route/:routeId/traffic-summary', asyncHandler(analyticsController.getExternalRouteTrafficSummary.bind(analyticsController)));
+app.get('/api/analytics/external/route/:routeId/predictions', asyncHandler(analyticsController.getExternalRoutePredictions.bind(analyticsController)));
+app.get('/api/analytics/hybrid/route/:routeId', asyncHandler(analyticsController.getHybridRouteAnalytics.bind(analyticsController)));
+app.post('/api/analytics/external/data/traffic', asyncHandler(analyticsController.ingestTrafficData.bind(analyticsController)));
+app.get('/api/analytics/external/admin/metrics', asyncHandler(analyticsController.getExternalSystemMetrics.bind(analyticsController)));
 
 app.post(
   "/api/bookings/assign-driver",

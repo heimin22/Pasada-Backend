@@ -57,3 +57,7 @@ test-results.xml
 test-results.xml
 test-existing-function.js
 test-existing-function.js
+test-external-analytics.js
+test-simple-analytics.js
+test-run-analytics.js
+test-analytics.js
