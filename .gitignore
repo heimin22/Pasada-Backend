@@ -54,3 +54,5 @@ test-driver-diagnostics.js
 test-driver-function.js
 test-results.xml
 test-results.xml
+test-existing-function.js
+test-existing-function.js
