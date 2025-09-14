@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 // Configuration
-const BASE_URL = process.env.API_BASE_URL || 'http://localhost:8080';
+const BASE_URL = process.env.API_BASE_URL;
 
 console.log('Testing Pasada Backend Traffic Analytics API');
 console.log('');
