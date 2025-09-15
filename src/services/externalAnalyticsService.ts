@@ -325,15 +325,26 @@ export class ExternalAnalyticsService {
   async getTrafficData(limit: number = 100, offset: number = 0): Promise<{
     success: boolean;
     data: TrafficData[];
-    metadata: {
-      limit: number;
-      offset: number;
-      total: number;
-      generatedAt: string;
-    };
+    metadata: { limit: number; offset: number; total: number; generatedAt: string };
   }> {
-    const response: AxiosResponse = await this.apiClient.get(`/api/data/traffic?limit=${limit}&offset=${offset}`);
-    return response.data;
+    try {
+      const response: AxiosResponse = await this.apiClient.get(`/api/data/traffic?limit=${limit}&offset=${offset}`);
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return {
+          success: true,
+          data: [],
+          metadata: {
+            limit,
+            offset,
+            total: 0,
+            generatedAt: new Date().toISOString()
+          }
+        };
+      }
+      throw error;
+    }
   }
 
   // Admin Endpoints
