@@ -43,7 +43,8 @@
     "test:external-analytics": "node test-external-analytics.js",
     "test:analytics": "node test-analytics.js",
     "test:simple-analytics": "node test-simple-analytics.js",
-    "test:run-analytics": "node test-run-analytics.js"
+    "test:run-analytics": "node test-run-analytics.js",
+    "test:booking-frequency": "node test-booking-frequency.js"
   },
   "engines": {
     "node": ">=18.0.0"
