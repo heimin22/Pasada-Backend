@@ -18,7 +18,9 @@ import { GoogleMapsService } from "./services/googleMapsService";
 import { GeminiService } from "./services/geminiService";
 import { AnalyticsService } from "./services/analyticsService";
 import { ExternalAnalyticsService } from "./services/externalAnalyticsService";
+import { BookingsAnalyticsService } from "./services/bookingsAnalyticsService";
 import { AnalyticsController } from "./controllers/analyticsController";
+import { BookingsAnalyticsController } from "./controllers/bookingsAnalyticsController";
 import { analyticsTrackingMiddleware, routeTrafficAnalyticsMiddleware, analyticsErrorHandler } from "./middleware/analyticsMiddleware";
 import analyticsRoutes from "./routes/analyticsRoutes";
 
@@ -74,7 +76,13 @@ const googleMapsService = new GoogleMapsService(GOOGLE_MAPS_API_KEY);
 const geminiService = new GeminiService(process.env.GEMINI_API_KEY!);
 const analyticsService = new AnalyticsService(databaseService, geminiService, googleMapsService);
 const externalAnalyticsService = new ExternalAnalyticsService(process.env.ANALYTICS_API_URL);
+const bookingsAnalyticsService = new BookingsAnalyticsService(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  process.env.QUESTDB_HTTP
+);
 const analyticsController = new AnalyticsController(analyticsService, externalAnalyticsService);
+const bookingsAnalyticsController = new BookingsAnalyticsController(bookingsAnalyticsService);
 
 // Analytics endpoints
 app.get('/api/analytics/routes/:routeId', asyncHandler(analyticsController.getRouteAnalytics.bind(analyticsController)));
@@ -91,6 +99,13 @@ app.get('/api/analytics/external/route/:routeId/predictions', asyncHandler(analy
 app.get('/api/analytics/hybrid/route/:routeId', asyncHandler(analyticsController.getHybridRouteAnalytics.bind(analyticsController)));
 app.post('/api/analytics/external/data/traffic', asyncHandler(analyticsController.ingestTrafficData.bind(analyticsController)));
 app.get('/api/analytics/external/admin/metrics', asyncHandler(analyticsController.getExternalSystemMetrics.bind(analyticsController)));
+
+// Booking Frequency Analytics Endpoints
+app.get('/api/analytics/bookings/frequency', asyncHandler(bookingsAnalyticsController.getBookingFrequency.bind(bookingsAnalyticsController)));
+app.post('/api/analytics/bookings/frequency/persist/daily', asyncHandler(bookingsAnalyticsController.persistDailyCounts.bind(bookingsAnalyticsController)));
+app.post('/api/analytics/bookings/frequency/persist/forecast', asyncHandler(bookingsAnalyticsController.persistForecast.bind(bookingsAnalyticsController)));
+app.get('/api/analytics/bookings/frequency/daily', asyncHandler(bookingsAnalyticsController.getDailyCounts.bind(bookingsAnalyticsController)));
+app.get('/api/analytics/bookings/frequency/forecast/latest', asyncHandler(bookingsAnalyticsController.getLatestForecast.bind(bookingsAnalyticsController)));
 
 app.post(
   "/api/bookings/assign-driver",
