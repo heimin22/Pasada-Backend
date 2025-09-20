@@ -19,10 +19,12 @@ import { GeminiService } from "./services/geminiService";
 import { AnalyticsService } from "./services/analyticsService";
 import { ExternalAnalyticsService } from "./services/externalAnalyticsService";
 import { BookingsAnalyticsService } from "./services/bookingsAnalyticsService";
+import { MigrationService } from "./services/migrationService";
 import { AnalyticsController } from "./controllers/analyticsController";
 import { BookingsAnalyticsController } from "./controllers/bookingsAnalyticsController";
 import { analyticsTrackingMiddleware, routeTrafficAnalyticsMiddleware, analyticsErrorHandler } from "./middleware/analyticsMiddleware";
 import analyticsRoutes from "./routes/analyticsRoutes";
+import migrationRoutes from "./routes/migrationRoutes";
 
 dotenv.config();
 
@@ -66,6 +68,7 @@ app.use(analyticsTrackingMiddleware);
 app.use("/api/drivers", driverRoutes);
 app.use("/api/trips", tripRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/admin/migration", migrationRoutes);
 
 // Initialize services
 const databaseService = new DatabaseService(
@@ -159,6 +162,43 @@ app.get("/api/test", (_req: Request, res: Response) => {
 app.get("/api/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
 });
+
+// Public status endpoints for frontend
+app.get("/api/status/questdb", asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const migrationService = new MigrationService(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      process.env.QUESTDB_HTTP
+    );
+    
+    const status = await migrationService.getQuestDBStatus();
+    
+    const response = {
+      success: true,
+      data: status,
+      timestamp: new Date().toISOString()
+    };
+
+    if (status.isAvailable && status.testQuery) {
+      res.status(200).json(response);
+    } else {
+      res.status(503).json({
+        ...response,
+        message: 'QuestDB is not available or not responding properly',
+        details: status.error
+      });
+    }
+  } catch (error: any) {
+    console.error('Error checking QuestDB status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check QuestDB status',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+}));
 
 app.get("/api/test/trips", (_req: Request, res: Response) => {
   res.json({ 
