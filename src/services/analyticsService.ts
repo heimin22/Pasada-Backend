@@ -38,8 +38,23 @@ export class AnalyticsService {
         summary
       };
 
-      // Get AI insights
-      const geminiInsights = await this.geminiService.analyzeTrafficData(analyticsWithoutInsights);
+      // Get AI insights with fallback
+      let geminiInsights: string;
+      try {
+        geminiInsights = await this.geminiService.analyzeTrafficData(analyticsWithoutInsights);
+      } catch (error) {
+        console.warn(`Failed to get Gemini insights for route ${routeId}, using fallback:`, error);
+        // Fallback insight based on traffic data
+        const density = summary.averageDensity;
+        const peakHours = summary.peakHours.join(', ');
+        if (density > 0.7) {
+          geminiInsights = `Heavy traffic expected on ${route.route_name}. Consider alternative routes during peak hours (${peakHours}).`;
+        } else if (density > 0.4) {
+          geminiInsights = `Moderate traffic on ${route.route_name}. Plan for slightly longer travel times during peak hours (${peakHours}).`;
+        } else {
+          geminiInsights = `Light traffic conditions on ${route.route_name}. Good time to travel with minimal delays expected.`;
+        }
+      }
 
       return {
         ...analyticsWithoutInsights,
@@ -54,11 +69,24 @@ export class AnalyticsService {
   async getAllRoutesAnalytics(): Promise<TrafficAnalytics[]> {
     try {
       const routes = await this.databaseService.getAllRoutes();
-      const analyticsPromises = routes.map(route => 
-        this.generateRouteAnalytics(route.officialroute_id)
-      );
+      const results: TrafficAnalytics[] = [];
+      
+      // Process routes sequentially to avoid rate limiting
+      for (const route of routes) {
+        try {
+          const analytics = await this.generateRouteAnalytics(route.officialroute_id);
+          results.push(analytics);
+          
+          // Add delay between requests to respect rate limits
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (error) {
+          console.error(`Error generating analytics for route ${route.officialroute_id}:`, error);
+          // Continue with other routes even if one fails
+          // You could also add a fallback analytics object here
+        }
+      }
 
-      return Promise.all(analyticsPromises);
+      return results;
     } catch (error) {
       console.error('Error generating all routes analytics:', error);
       throw new Error('Failed to generate analytics for all routes');

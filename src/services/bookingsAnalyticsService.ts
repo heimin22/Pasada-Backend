@@ -31,8 +31,9 @@ export interface QuestDBResponse {
 
 export class BookingsAnalyticsService {
   private supabase: SupabaseClient;
-  private questDbClient: AxiosInstance;
+  private questDbClient: AxiosInstance | null;
   private questDbUrl: string;
+  private questDbAvailable: boolean = false;
 
   constructor(
     supabaseUrl: string,
@@ -42,10 +43,17 @@ export class BookingsAnalyticsService {
     this.supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
     this.questDbUrl = questDbUrl || process.env.QUESTDB_HTTP || 'http://localhost:9000';
     
-    this.questDbClient = axios.create({
-      baseURL: this.questDbUrl,
-      timeout: 10000,
-    });
+    // Only create QuestDB client if URL is not localhost (production)
+    if (this.questDbUrl && !this.questDbUrl.includes('localhost')) {
+      this.questDbClient = axios.create({
+        baseURL: this.questDbUrl,
+        timeout: 10000,
+      });
+      this.questDbAvailable = true;
+    } else {
+      this.questDbClient = null;
+      console.warn('QuestDB not configured for production. Analytics features will be limited.');
+    }
   }
 
   /**
@@ -384,6 +392,10 @@ export class BookingsAnalyticsService {
    * Execute QuestDB query with retry logic
    */
   private async executeQuestDBQuery(query: string, maxRetries: number = 3): Promise<QuestDBResponse> {
+    if (!this.questDbClient || !this.questDbAvailable) {
+      throw new Error('QuestDB is not available. Please configure QUESTDB_HTTP environment variable.');
+    }
+
     let lastError: Error | null = null;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
