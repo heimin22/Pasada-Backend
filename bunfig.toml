@@ -1,0 +1,8 @@
+[install]
+# Use npm registry for packages that might not be available in Bun's registry
+registry = "https://registry.npmjs.org/"
+
+[test]
+# Test configuration for Bun
+preload = ["./src/tests/setup.ts"]
+timeout = 30000

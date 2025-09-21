@@ -1,4 +1,4 @@
-const axios = require('axios');
+import axios from 'axios';
 
 // Configuration
 const BASE_URL = process.env.API_URL || 'http://localhost:8080';

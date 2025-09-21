@@ -1,12 +1,18 @@
-FROM node:23-stretch
+FROM oven/bun:1
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm install
+# Copy package files first
+COPY package*.json bun.lock ./
 
+# Install dependencies without running postinstall (which tries to build)
+RUN bun install --ignore-scripts
+
+# Copy source code
 COPY . .
-RUN npm run build
+
+# Now run the build
+RUN bun run build
 
 EXPOSE 8080
-CMD ["node", "dist/server.js"]
+CMD ["bun", "dist/server.js"]
