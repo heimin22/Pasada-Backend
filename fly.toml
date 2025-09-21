@@ -6,11 +6,7 @@
 app = "pasada-backend"
 primary_region = "sin"
 
-[build]
-builder = "heroku/builder:24"
-
-[build.args]
-NODE_VERSION = "18"
+# Using Dockerfile for Bun deployment
 
 [env]
 NODE_ENV = "production"

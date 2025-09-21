@@ -1,4 +1,7 @@
 {
+  "name": "pasada-backend",
+  "version": "1.0.0",
+  "type": "module",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.49.4",
@@ -10,9 +13,7 @@
     "express-rate-limit": "^8.0.1",
     "firebase-admin": "^13.3.0",
     "helmet": "^8.1.0",
-    "nodemon": "^3.1.0",
-    "socket.io": "^4.8.1",
-    "typescript": "^5.8.3"
+    "socket.io": "^4.8.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -20,34 +21,33 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^22.14.0",
     "@types/supertest": "^6.0.3",
+    "bun-types": "latest",
     "cors": "^2.8.5",
     "jest": "^30.1.3",
     "supabase": "^2.20.12",
     "supertest": "^7.1.4",
     "ts-jest": "^29.4.1",
-    "ts-node": "^10.9.2",
-    "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.3"
   },
   "scripts": {
-    "start": "node dist/server.js",
-    "build": "tsc",
-    "dev": "ts-node-dev --respawn src/server.ts",
-    "postinstall": "npm run build",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "test:api": "node test-api.js",
-    "populate-traffic": "node populate-traffic-data.js",
-    "test:driver-function": "node test-driver-function.js",
-    "test:external-analytics": "node test-external-analytics.js",
-    "test:analytics": "node test-analytics.js",
-    "test:simple-analytics": "node test-simple-analytics.js",
-    "test:run-analytics": "node test-run-analytics.js",
-    "test:booking-frequency": "node test-booking-frequency.js",
-    "test:migration": "node test-migration-endpoints.js"
+    "start": "bun dist/server.js",
+    "build": "mkdir -p dist && bunx tsc --project .",
+    "dev": "bun --watch src/server.ts",
+    "postinstall": "bun run build",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage",
+    "test:api": "bun test-api.js",
+    "populate-traffic": "bun populate-traffic-data.js",
+    "test:driver-function": "bun test-driver-function.js",
+    "test:external-analytics": "bun test-external-analytics.js",
+    "test:analytics": "bun test-analytics.js",
+    "test:simple-analytics": "bun test-simple-analytics.js",
+    "test:run-analytics": "bun test-run-analytics.js",
+    "test:booking-frequency": "bun test-booking-frequency.js",
+    "test:migration": "bun test-migration-endpoints.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "bun": ">=1.0.0"
   }
 }
