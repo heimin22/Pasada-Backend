@@ -23,9 +23,21 @@ export class GeminiService {
               .slice(0, 2)
               .join(' ');
             return twoSentences;
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error analyzing traffic data:', error);
-            throw new Error('Failed to analyze traffic data with Gemini');
+            
+            // Provide more specific error messages based on error type
+            if (error.message?.includes('429') || error.status === 429) {
+                throw new Error('Gemini API rate limit exceeded. Please try again later.');
+            } else if (error.message?.includes('401') || error.status === 401) {
+                throw new Error('Gemini API authentication failed. Please check your API key.');
+            } else if (error.message?.includes('403') || error.status === 403) {
+                throw new Error('Gemini API access forbidden. Please check your API permissions.');
+            } else if (error.message?.includes('500') || error.status === 500) {
+                throw new Error('Gemini API server error. Please try again later.');
+            } else {
+                throw new Error(`Failed to analyze traffic data with Gemini: ${error.message || 'Unknown error'}`);
+            }
         }
     }
 

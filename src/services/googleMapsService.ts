@@ -53,6 +53,50 @@ export class GoogleMapsService {
         }
     }
 
+    async getTrafficDataForTime(origin: string, destination: string, targetTime: Date, waypoints?: Array<{ lat: number; lng: number }>): Promise<TrafficData | null> {
+        try {
+            const params: Record<string, string> = {
+                origin,
+                destination,
+                departure_time: Math.floor(targetTime.getTime() / 1000).toString(),
+                traffic_model: 'best_guess',
+                key: this.apiKey
+            };
+
+            if (waypoints && waypoints.length > 0) {
+                params['waypoints'] = waypoints.map(wp => `via:${wp.lat},${wp.lng}`).join('|');
+            }
+
+            const response = await axios.get(`${this.baseUrl}/directions/json`, { params });
+            const data = response.data;
+
+            if (data.status !== 'OK' || !data.routes.length) {
+                console.warn(`Google Maps API returned status: ${data.status} for time ${targetTime.toISOString()}`);
+                return null;
+            }
+
+            const route = data.routes[0];
+            const legs = route.legs[0]; 
+
+            const normalDuration = legs.duration.value;
+            const trafficDuration = legs.duration_in_traffic?.value || normalDuration;
+            const trafficDensity = Math.min((trafficDuration / normalDuration - 1), 1);
+
+            return {
+                routeId: 0, // Will be set by caller
+                timestamp: targetTime,
+                trafficDensity: Math.max(0, trafficDensity),
+                duration: normalDuration,
+                durationInTraffic: trafficDuration,
+                distance: legs.distance.value,
+                status: 'OK'
+            };
+        } catch (error) {
+            console.error(`Error fetching traffic data for time ${targetTime.toISOString()}:`, error);
+            return null;
+        }
+    }
+
     async getHistoricalTrafficPattern(origin: string, destination: string, days: number = 7, waypoints?: Array<{ lat: number; lng: number }>): Promise<TrafficData[]> {
         const historicalData: TrafficData[] = [];
         const now = new Date();

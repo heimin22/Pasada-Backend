@@ -9,6 +9,10 @@ export class DatabaseService {
         this.supabase = createClient(supabaseUrl, supabaseKey);
     }
 
+    getSupabaseClient(): SupabaseClient {
+        return this.supabase;
+    }
+
     async getAllRoutes(): Promise<OfficialRoute[]> {
         try {
             const { data, error } = await this.supabase

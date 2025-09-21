@@ -1,9 +1,26 @@
 import express from 'express';
 import { ExternalAnalyticsService } from '../services/externalAnalyticsService';
+import { WeeklyAnalyticsService } from '../services/weeklyAnalyticsService';
+import { DailyTrafficCollectionService } from '../services/dailyTrafficCollectionService';
+import { DatabaseService } from '../services/databaseService';
+import { AnalyticsService } from '../services/analyticsService';
+import { GoogleMapsService } from '../services/googleMapsService';
+import { GeminiService } from '../services/geminiService';
 import asyncHandler from 'express-async-handler';
 
 const router = express.Router();
 const externalAnalyticsService = new ExternalAnalyticsService();
+
+// Initialize local services for weekly analytics
+const databaseService = new DatabaseService(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_ANON_KEY!
+);
+const googleMapsService = new GoogleMapsService(process.env.GOOGLE_MAPS_API_KEY || '');
+const geminiService = new GeminiService(process.env.GEMINI_API_KEY || '');
+const analyticsService = new AnalyticsService(databaseService, geminiService, googleMapsService);
+const weeklyAnalyticsService = new WeeklyAnalyticsService(databaseService, analyticsService, googleMapsService);
+const dailyTrafficCollectionService = new DailyTrafficCollectionService(databaseService, googleMapsService);
 
 // Health & Status Endpoints
 router.get('/health', asyncHandler(async (req, res) => {
@@ -218,20 +235,41 @@ router.get('/data/traffic', asyncHandler(async (req, res) => {
   }
 }));
 
+// Daily Traffic Collection Endpoints
+router.post('/admin/collect-daily-traffic', asyncHandler(async (req, res) => {
+  try {
+    const result = await dailyTrafficCollectionService.collectDailyTrafficData();
+    res.json(result);
+  } catch (error) {
+    console.error('Daily traffic collection failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to collect daily traffic data',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+}));
+
+router.get('/admin/collection-status', asyncHandler(async (req, res) => {
+  try {
+    const result = await dailyTrafficCollectionService.getCollectionStatus();
+    res.json(result);
+  } catch (error) {
+    console.error('Failed to get collection status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get collection status',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+}));
+
 // Admin Endpoints
 router.post('/admin/process-weekly', asyncHandler(async (req, res) => {
   try {
-    const weekOffset = undefined;
+    const weekOffset = 0; // Default to current week
 
-    if (weekOffset !== undefined && isNaN(weekOffset)) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid week offset'
-      });
-      return;
-    }
-
-    const result = await externalAnalyticsService.processWeeklyAnalytics(weekOffset);
+    const result = await weeklyAnalyticsService.processWeeklyAnalytics(weekOffset);
     res.json(result);
   } catch (error) {
     console.error('Weekly processing failed:', error);
@@ -255,7 +293,7 @@ router.post('/admin/process-weekly/:weekOffset', asyncHandler(async (req, res) =
       return;
     }
 
-    const result = await externalAnalyticsService.processWeeklyAnalytics(weekOffset);
+    const result = await weeklyAnalyticsService.processWeeklyAnalytics(weekOffset);
     res.json(result);
   } catch (error) {
     console.error('Weekly processing failed:', error);

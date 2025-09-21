@@ -48,10 +48,19 @@ export class MigrationService {
     this.supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
     this.questDbUrl = questDbUrl || process.env.QUESTDB_HTTP || 'http://localhost:9000';
     
-    this.questDbClient = axios.create({
-      baseURL: this.questDbUrl,
-      timeout: 30000, // Longer timeout for migration operations
-    });
+    // Only create QuestDB client if URL is not localhost (production)
+    if (this.questDbUrl && !this.questDbUrl.includes('localhost')) {
+      this.questDbClient = axios.create({
+        baseURL: this.questDbUrl,
+        timeout: 30000, // Longer timeout for migration operations
+      });
+    } else {
+      this.questDbClient = axios.create({
+        baseURL: this.questDbUrl,
+        timeout: 30000,
+      });
+      console.warn('QuestDB configured for localhost. Migration features may not work in production.');
+    }
   }
 
   /**
