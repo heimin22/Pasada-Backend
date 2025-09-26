@@ -38,12 +38,19 @@ export class AnalyticsService {
         summary
       };
 
-      // Get AI insights with fallback
+      // Get AI insights with fallback - now using database-based analysis
       let geminiInsights: string;
       try {
-        geminiInsights = await this.geminiService.analyzeTrafficData(analyticsWithoutInsights);
+        // Use the new database-based analysis method
+        geminiInsights = await this.geminiService.analyzeTrafficDataFromDatabase(routeId, 7);
       } catch (error) {
         console.warn(`Failed to get Gemini insights for route ${routeId}, using fallback:`, error);
+        
+        // Check if it's a specific GeminiException with 404 error
+        if (error instanceof Error && error.message?.includes('GeminiException') && error.message?.includes('404')) {
+          console.error('Gemini API returned 404 - model or endpoint not found:', error.message);
+        }
+        
         // Fallback insight based on traffic data
         const density = summary.averageDensity;
         const peakHours = summary.peakHours.join(', ');

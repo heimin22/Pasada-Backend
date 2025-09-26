@@ -76,7 +76,7 @@ const databaseService = new DatabaseService(
   process.env.SUPABASE_ANON_KEY!
 );
 const googleMapsService = new GoogleMapsService(GOOGLE_MAPS_API_KEY);
-const geminiService = new GeminiService(process.env.GEMINI_API_KEY!);
+const geminiService = new GeminiService(process.env.GEMINI_API_KEY!, databaseService);
 const analyticsService = new AnalyticsService(databaseService, geminiService, googleMapsService);
 const externalAnalyticsService = new ExternalAnalyticsService(process.env.ANALYTICS_API_URL);
 const bookingsAnalyticsService = new BookingsAnalyticsService(

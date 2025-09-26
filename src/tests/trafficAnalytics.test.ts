@@ -102,7 +102,7 @@ describe('Traffic Analytics Feature Tests', () => {
     test('should create services with proper dependencies', () => {
       const databaseService = new DatabaseService('test-url', 'test-key');
       const googleMapsService = new GoogleMapsService('test-api-key');
-      const geminiService = new GeminiService('test-api-key');
+      const geminiService = new GeminiService('test-api-key', databaseService);
       const analyticsService = new AnalyticsService(
         databaseService,
         geminiService,

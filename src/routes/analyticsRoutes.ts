@@ -17,7 +17,7 @@ const databaseService = new DatabaseService(
   process.env.SUPABASE_ANON_KEY!
 );
 const googleMapsService = new GoogleMapsService(process.env.GOOGLE_MAPS_API_KEY || '');
-const geminiService = new GeminiService(process.env.GEMINI_API_KEY || '');
+const geminiService = new GeminiService(process.env.GEMINI_API_KEY || '', databaseService);
 const analyticsService = new AnalyticsService(databaseService, geminiService, googleMapsService);
 const weeklyAnalyticsService = new WeeklyAnalyticsService(databaseService, analyticsService, googleMapsService);
 const dailyTrafficCollectionService = new DailyTrafficCollectionService(databaseService, googleMapsService);
@@ -334,6 +334,119 @@ router.get('/health/overview', asyncHandler(async (req, res) => {
         traffic: false
       },
       error: 'Service health check failed'
+    });
+  }
+}));
+
+// Database-based Gemini Analysis Endpoint
+router.get('/database-analysis/route/:routeId', asyncHandler(async (req, res) => {
+  try {
+    const routeId = parseInt(req.params.routeId);
+    const days = parseInt(req.query.days as string) || 7;
+
+    if (isNaN(routeId)) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid route ID'
+      });
+      return;
+    }
+
+    // Get AI insights directly from database
+    const geminiInsights = await geminiService.analyzeTrafficDataFromDatabase(routeId, days);
+    
+    res.json({
+      success: true,
+      data: {
+        routeId,
+        days,
+        geminiInsights,
+        analysisType: 'database-based',
+        generatedAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Database-based analysis failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to analyze traffic data from database',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+}));
+
+// Database-based Gemini Overview Endpoint
+router.get('/database-analysis/overview', asyncHandler(async (req, res) => {
+  try {
+    const days = parseInt(req.query.days as string) || 7;
+
+    const geminiInsights = await geminiService.analyzeOverviewFromDatabase(days);
+
+    res.json({
+      success: true,
+      data: {
+        days,
+        geminiInsights,
+        analysisType: 'database-overview',
+        generatedAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Database-based overview analysis failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate overview analytics from database',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+}));
+
+// Free-form Manong Q&A Endpoint (grounded to database)
+router.post('/ai/ask', asyncHandler(async (req, res) => {
+  try {
+    const { question, routeId, days } = req.body || {};
+
+    if (!question || typeof question !== 'string' || question.trim().length < 3) {
+      res.status(400).json({ success: false, error: 'A valid question is required' });
+      return;
+    }
+
+    // Soft scope enforcement: refuse obviously out-of-domain topics client-side
+    const lower = question.toLowerCase();
+    const inScope = ['pasada', 'route', 'traffic', 'jeepney', 'fleet', 'driver', 'booking', 'malinta', 'novaliches', 'adrian', 'caloocan', 'monumento', 'sangandaan']
+      .some(k => lower.includes(k));
+
+    if (!inScope) {
+      res.json({
+        success: true,
+        data: {
+          geminiInsights: 'I can only help with Pasada analytics, fleet, routes, ride-hailing, or traffic advisory. Please ask about those topics.',
+          analysisType: 'qa-refusal',
+          generatedAt: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
+    const answer = await geminiService.answerQuestion({ question, routeId, days });
+
+    res.json({
+      success: true,
+      data: {
+        question,
+        routeId: routeId ?? null,
+        days: days ?? 7,
+        geminiInsights: answer,
+        analysisType: 'manong-qa',
+        generatedAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('AI Q&A failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to answer question',
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 }));
