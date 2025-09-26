@@ -451,4 +451,39 @@ router.post('/ai/ask', asyncHandler(async (req, res) => {
   }
 }));
 
+// Free-form Manong Chat Endpoint (multi-turn, grounded to database)
+router.post('/ai/chat', asyncHandler(async (req, res) => {
+  try {
+    const { messages, days } = req.body || {};
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      res.status(400).json({ success: false, error: 'messages array is required' });
+      return;
+    }
+
+    // Basic sanitation: only allow role/content keys
+    const sanitized = messages
+      .filter((m: any) => m && (m.role === 'user' || m.role === 'assistant' || m.role === 'system') && typeof m.content === 'string')
+      .slice(-6); // cap history
+
+    const reply = await geminiService.chatWithManong(sanitized, { days });
+
+    res.json({
+      success: true,
+      data: {
+        reply,
+        analysisType: 'manong-chat',
+        generatedAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('AI Chat failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to process chat',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+}));
+
 export default router;

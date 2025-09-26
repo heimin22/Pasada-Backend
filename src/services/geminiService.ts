@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { TrafficAnalytics } from "../types/traffic";
 import { DatabaseService } from "./databaseService";
+import { BookingFrequencyResponse } from "./bookingsAnalyticsService";
 
 export class GeminiService {
     private genAI: GoogleGenerativeAI;
@@ -349,6 +350,66 @@ Instructions:
 - If context is insufficient, say so briefly and request a specific route or timeframe.`;
     }
 
+    async explainBookingFrequency(
+        bookingFrequency: BookingFrequencyResponse,
+        days: number = 14
+    ): Promise<string> {
+        try {
+            const { history, forecast } = bookingFrequency;
+            const total = history.reduce((s, d) => s + d.count, 0);
+            const avgPerDay = history.length ? Math.round(total / history.length) : 0;
+            const maxDay = history.reduce((a, b) => (a.count >= b.count ? a : b), { date: '', count: 0, dayOfWeek: 0 } as any);
+            const minDay = history.reduce((a, b) => (a.count <= b.count ? a : b), { date: '', count: Number.MAX_SAFE_INTEGER, dayOfWeek: 0 } as any);
+            const nextWeekTotal = forecast.reduce((s, f) => s + f.predictedCount, 0);
+            const highForecast = forecast.reduce((a, b) => (a.predictedCount >= b.predictedCount ? a : b), forecast[0]);
+            const lowForecast = forecast.reduce((a, b) => (a.predictedCount <= b.predictedCount ? a : b), forecast[0]);
+
+            const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+            const prompt = `You are Manong, a helpful AI assistant for Pasada, a modern jeepney transportation system in the Philippines. Our team is composed of Calvin John Crehencia, Adrian De Guzman, Ethan Andrei Humarang and Fyke Simon Tonel, we are called CAFE Tech. Don't use emoji.
+
+You are focused in Fleet Management System, Modern Jeepney Transportation System in the Philippines, Ride-Hailing, and Traffic Advisory in the Malinta to Novaliches route in the Philippines. You're implemented in the admin website of Pasada: An AI-Powered Ride-Hailing and Fleet Management Platform for Modernized Jeepneys Services with Mobile Integration and RealTime Analytics.
+
+You're role is to be an advisor, providing suggestions based on the data inside the website. Limit your answer in 3 sentences and summarize if necessary. Don't answer other topics, only those mentioned above.
+
+Provide a concise explanation for recent booking frequency and the near-term forecast based on real Pasada data.
+Context (last ${days} days):
+- Average daily bookings: ${avgPerDay}
+- Highest day: ${maxDay.date || 'n/a'} (${maxDay.count || 0})
+- Lowest day: ${minDay.date || 'n/a'} (${minDay.count === Number.MAX_SAFE_INTEGER ? 0 : minDay.count})
+- Next 7-day forecast total: ${nextWeekTotal}
+- Forecast high: ${highForecast?.date} (${highForecast?.predictedCount})
+- Forecast low: ${lowForecast?.date} (${lowForecast?.predictedCount})
+
+Instructions:
+- Give operational advice (dispatch planning, promos, off-peak incentives) in one sentence.
+- Keep it at most 3 sentences, plain English.`;
+
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            const text = response.text().trim();
+            return text
+                .replace(/\n+/g, ' ')
+                .split(/(?<=[.!?])\s+/)
+                .slice(0, 3)
+                .join(' ');
+        } catch (error: any) {
+            console.error('Error explaining booking frequency with Gemini:', error);
+            if (error.message?.includes('429') || error.status === 429) {
+                throw new Error('Gemini API rate limit exceeded. Please try again later.');
+            } else if (error.message?.includes('401') || error.status === 401) {
+                throw new Error('Gemini API authentication failed. Please check your API key.');
+            } else if (error.message?.includes('403') || error.status === 403) {
+                throw new Error('Gemini API access forbidden. Please check your API permissions.');
+            } else if (error.message?.includes('404') || error.status === 404) {
+                throw new Error('Sorry, I couldn\'t analyze the booking data at the moment due to a 404 from the AI backend.');
+            } else if (error.message?.includes('500') || error.status === 500) {
+                throw new Error('Gemini API server error. Please try again later.');
+            } else {
+                throw new Error(`Failed to generate booking frequency explanation: ${error.message || 'Unknown error'}`);
+            }
+        }
+    }
+
     private buildOverviewAnalysisPrompt(
         days: number,
         overallAverage: number,
@@ -372,5 +433,54 @@ Context:
 - Routes analyzed: ${routesAnalyzed}
 - Overall average density: ${Math.round(overallAverage * 100)}%
 - Most congested routes: ${topList}`;
+    }
+
+    // Conversational chat grounded to database summaries
+    async chatWithManong(messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>, options?: { days?: number }): Promise<string> {
+        const days = options?.days ?? 7;
+        try {
+            // Pull concise, safe summaries from DB
+            const [bookings, routes, drivers, dQuotas, aQuotas, admins, vehicles] = await Promise.all([
+                this.databaseService.getBookingsSummary(days),
+                this.databaseService.getRoutesSummary(),
+                this.databaseService.getDriversSummary(),
+                this.databaseService.getDriverQuotasSummary(),
+                this.databaseService.getAdminQuotasSummary(),
+                this.databaseService.getAdminsSummary(),
+                this.databaseService.getVehiclesSummary()
+            ]);
+
+            const systemPreamble = `You are Manong, a helpful AI assistant for Pasada (Philippines modern jeepney). No emojis. Scope: fleet management, ride-hailing, traffic advisory, bookings, routes, drivers, vehicles, quotas; also general traffic and transportation in the Philippines (high-level, non-political). Be concise (max 3 sentences). Use only provided data; if unsure, say so and request specifics.`;
+
+            const context = `Context (last ${days} days):\n- Active routes: ${routes.activeRoutes} (${routes.routeNames.slice(0,8).join(', ')}${routes.routeNames.length>8?', ...':''})\n- Bookings total: ${bookings.totalBookings}; avg/day: ${bookings.averagePerDay}\n- Drivers: ${drivers.totalDrivers}; Vehicles: ${vehicles.totalVehicles}\n- Quota policies: driver=${dQuotas.quotaPolicies}, admin=${aQuotas.adminQuotaPolicies}\n- Admins: ${admins.totalAdmins}`;
+
+            const userTurns = messages
+                .filter(m => m.role === 'user')
+                .map(m => m.content)
+                .slice(-3) // keep prompt tight
+                .join(' ');
+
+            const prompt = `${systemPreamble}\n\n${context}\n\nUser question(s): ${userTurns}\n\nInstructions:\n- Answer only if related to Pasada domain above.\n- If out-of-scope, briefly refuse and suggest a valid topic.\n- Provide one practical, data-aware suggestion.`;
+
+            const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            return response.text().trim().replace(/\n+/g, ' ').split(/(?<=[.!?])\s+/).slice(0,3).join(' ');
+        } catch (error: any) {
+            console.error('Error in Manong chat:', error);
+            if (error.message?.includes('429') || error.status === 429) {
+                throw new Error('Gemini API rate limit exceeded. Please try again later.');
+            } else if (error.message?.includes('401') || error.status === 401) {
+                throw new Error('Gemini API authentication failed. Please check your API key.');
+            } else if (error.message?.includes('403') || error.status === 403) {
+                throw new Error('Gemini API access forbidden. Please check your API permissions.');
+            } else if (error.message?.includes('404') || error.status === 404) {
+                throw new Error('Sorry, I couldn\'t process the request due to a 404 from the AI backend.');
+            } else if (error.message?.includes('500') || error.status === 500) {
+                throw new Error('Gemini API server error. Please try again later.');
+            } else {
+                throw new Error(`Failed to process chat with Gemini: ${error.message || 'Unknown error'}`);
+            }
+        }
     }
 }

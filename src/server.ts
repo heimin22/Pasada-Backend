@@ -85,7 +85,7 @@ const bookingsAnalyticsService = new BookingsAnalyticsService(
   process.env.QUESTDB_HTTP
 );
 const analyticsController = new AnalyticsController(analyticsService, externalAnalyticsService);
-const bookingsAnalyticsController = new BookingsAnalyticsController(bookingsAnalyticsService);
+const bookingsAnalyticsController = new BookingsAnalyticsController(bookingsAnalyticsService, geminiService);
 
 // Analytics endpoints
 app.get('/api/analytics/routes/:routeId', asyncHandler(analyticsController.getRouteAnalytics.bind(analyticsController)));
