@@ -440,19 +440,21 @@ Context:
         const days = options?.days ?? 7;
         try {
             // Pull concise, safe summaries from DB
-            const [bookings, routes, drivers, dQuotas, aQuotas, admins, vehicles] = await Promise.all([
+            const [bookings, routes, drivers, dQuotas, aQuotas, admins, vehicles, onlineDrivers, availableVehicles] = await Promise.all([
                 this.databaseService.getBookingsSummary(days),
                 this.databaseService.getRoutesSummary(),
                 this.databaseService.getDriversSummary(),
                 this.databaseService.getDriverQuotasSummary(),
                 this.databaseService.getAdminQuotasSummary(),
                 this.databaseService.getAdminsSummary(),
-                this.databaseService.getVehiclesSummary()
+                this.databaseService.getVehiclesSummary(),
+                this.databaseService.getOnlineDriversCount(),
+                this.databaseService.getAvailableVehiclesCount()
             ]);
 
             const systemPreamble = `You are Manong, a helpful AI assistant for Pasada (Philippines modern jeepney). No emojis. Scope: fleet management, ride-hailing, traffic advisory, bookings, routes, drivers, vehicles, quotas; also general traffic and transportation in the Philippines (high-level, non-political). Be concise (max 3 sentences). Use only provided data; if unsure, say so and request specifics.`;
 
-            const context = `Context (last ${days} days):\n- Active routes: ${routes.activeRoutes} (${routes.routeNames.slice(0,8).join(', ')}${routes.routeNames.length>8?', ...':''})\n- Bookings total: ${bookings.totalBookings}; avg/day: ${bookings.averagePerDay}\n- Drivers: ${drivers.totalDrivers}; Vehicles: ${vehicles.totalVehicles}\n- Quota policies: driver=${dQuotas.quotaPolicies}, admin=${aQuotas.adminQuotaPolicies}\n- Admins: ${admins.totalAdmins}`;
+            const context = `Context (last ${days} days):\n- Active routes: ${routes.activeRoutes} (${routes.routeNames.slice(0,8).join(', ')}${routes.routeNames.length>8?', ...':''})\n- Bookings total: ${bookings.totalBookings}; avg/day: ${bookings.averagePerDay}\n- Drivers: ${drivers.totalDrivers} (online: ${onlineDrivers}); Vehicles: ${vehicles.totalVehicles} (available: ${availableVehicles})\n- Quota policies: driver=${dQuotas.quotaPolicies}, admin=${aQuotas.adminQuotaPolicies}\n- Admins: ${admins.totalAdmins}`;
 
             const userTurns = messages
                 .filter(m => m.role === 'user')
