@@ -76,7 +76,7 @@ const databaseService = new DatabaseService(
   process.env.SUPABASE_ANON_KEY!
 );
 const googleMapsService = new GoogleMapsService(GOOGLE_MAPS_API_KEY);
-const geminiService = new GeminiService(process.env.GEMINI_API_KEY!);
+const geminiService = new GeminiService(process.env.GEMINI_API_KEY!, databaseService);
 const analyticsService = new AnalyticsService(databaseService, geminiService, googleMapsService);
 const externalAnalyticsService = new ExternalAnalyticsService(process.env.ANALYTICS_API_URL);
 const bookingsAnalyticsService = new BookingsAnalyticsService(
@@ -85,7 +85,7 @@ const bookingsAnalyticsService = new BookingsAnalyticsService(
   process.env.QUESTDB_HTTP
 );
 const analyticsController = new AnalyticsController(analyticsService, externalAnalyticsService);
-const bookingsAnalyticsController = new BookingsAnalyticsController(bookingsAnalyticsService);
+const bookingsAnalyticsController = new BookingsAnalyticsController(bookingsAnalyticsService, geminiService);
 
 // Analytics endpoints
 app.get('/api/analytics/routes/:routeId', asyncHandler(analyticsController.getRouteAnalytics.bind(analyticsController)));

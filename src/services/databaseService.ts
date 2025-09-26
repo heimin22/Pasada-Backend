@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { getAllowedColumns } from "../utils/schemaAllowlist";
 import { OfficialRoute } from "../types/route";
 import { TrafficData, TripAnalyticsData, RouteUsageData } from "../types/traffic";
 
@@ -15,13 +16,16 @@ export class DatabaseService {
 
     async getAllRoutes(): Promise<OfficialRoute[]> {
         try {
+            const allowed = getAllowedColumns('official_routes');
+            const columns = allowed.length ? allowed.join(',') : '*';
             const { data, error } = await this.supabase
                 .from('official_routes')
-                .select('*')
+                .select(columns)
                 .eq('status', 'active');
 
             if (error) throw error;
-            return data || [];
+            const rows = (data as any[]) || [];
+            return rows as unknown as OfficialRoute[];
         } catch (error) {
             console.error('Error fetching routes:', error);
             throw new Error('Failed to fetch routes from database');
@@ -30,18 +34,211 @@ export class DatabaseService {
 
     async getRouteById(routeId: number): Promise<OfficialRoute | null> {
         try {
+            const allowed = getAllowedColumns('official_routes');
+            const columns = allowed.length ? allowed.join(',') : '*';
             const { data, error } = await this.supabase
                 .from('official_routes')
-                .select('*')
+                .select(columns)
                 .eq('officialroute_id', routeId)
                 .single();
 
             if (error) throw error;
-            return data || null;
+            const row = (data as any) || null;
+            return row as unknown as OfficialRoute | null;
         } catch (error) {
             console.error('Error fetching route by ID:', error);
             throw new Error('Failed to fetch route by ID from database');
         }
+    }
+
+    // Booking & system summaries for AI grounding
+    async getBookingsSummary(days: number = 7): Promise<{
+        totalBookings: number;
+        averagePerDay: number;
+        daily: Array<{ date: string; count: number }>;
+    }> {
+        try {
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days);
+
+            const allowed = getAllowedColumns('bookings');
+            const columns = allowed.length ? allowed.join(',') : 'created_at';
+            const { data, error } = await this.supabase
+                .from('bookings')
+                .select(columns)
+                .gte('created_at', startDate.toISOString())
+                .order('created_at', { ascending: true });
+            if (error) throw error;
+
+            const counts = new Map<string, number>();
+            for (let i = 0; i < days; i++) {
+                const d = new Date();
+                d.setDate(d.getDate() - (days - 1 - i));
+                counts.set(d.toISOString().split('T')[0], 0);
+            }
+            ((data as any[]) || []).forEach((row: any) => {
+                const ds = new Date(row.created_at as string).toISOString().split('T')[0];
+                counts.set(ds, (counts.get(ds) || 0) + 1);
+            });
+
+            const daily = Array.from(counts.entries()).map(([date, count]) => ({ date, count }));
+            const totalBookings = daily.reduce((s, d) => s + d.count, 0);
+            const averagePerDay = daily.length ? Math.round(totalBookings / daily.length) : 0;
+
+            return { totalBookings, averagePerDay, daily };
+        } catch (error) {
+            console.error('Error fetching bookings summary:', error);
+            return { totalBookings: 0, averagePerDay: 0, daily: [] };
+        }
+    }
+
+    async getRoutesSummary(): Promise<{
+        activeRoutes: number;
+        routeNames: string[];
+    }> {
+        try {
+            const { data, error } = await this.supabase
+                .from('official_routes')
+                .select('route_name')
+                .eq('status', 'active');
+            if (error) throw error;
+            const names = (data || []).map(r => r.route_name as string);
+            return { activeRoutes: names.length, routeNames: names };
+        } catch (error) {
+            console.error('Error fetching routes summary:', error);
+            return { activeRoutes: 0, routeNames: [] };
+        }
+    }
+
+    // Additional summaries for extended AI context
+    async getDriversSummary(): Promise<{ totalDrivers: number }> {
+        try {
+            const { count, error } = await this.supabase
+                .from('driverTable')
+                .select('*', { count: 'exact', head: true });
+            if (error) throw error;
+            return { totalDrivers: count || 0 };
+        } catch (error) {
+            console.warn('Drivers summary unavailable:', error);
+            return { totalDrivers: 0 };
+        }
+    }
+
+    async getDriverQuotasSummary(): Promise<{ quotaPolicies: number }> {
+        try {
+            const { count, error } = await this.supabase
+                .from('driverQuotasTable')
+                .select('*', { count: 'exact', head: true });
+            if (error) throw error;
+            return { quotaPolicies: count || 0 };
+        } catch (error) {
+            console.warn('Driver quotas summary unavailable:', error);
+            return { quotaPolicies: 0 };
+        }
+    }
+
+    async getAdminQuotasSummary(): Promise<{ adminQuotaPolicies: number }> {
+        try {
+            const { count, error } = await this.supabase
+                .from('adminQuotaTable')
+                .select('*', { count: 'exact', head: true });
+            if (error) throw error;
+            return { adminQuotaPolicies: count || 0 };
+        } catch (error) {
+            console.warn('Admin quotas summary unavailable:', error);
+            return { adminQuotaPolicies: 0 };
+        }
+    }
+
+    async getAdminsSummary(): Promise<{ totalAdmins: number }> {
+        try {
+            const { count, error } = await this.supabase
+                .from('adminTable')
+                .select('*', { count: 'exact', head: true });
+            if (error) throw error;
+            return { totalAdmins: count || 0 };
+        } catch (error) {
+            console.warn('Admins summary unavailable:', error);
+            return { totalAdmins: 0 };
+        }
+    }
+
+    async getVehiclesSummary(): Promise<{ totalVehicles: number }> {
+        try {
+            const { count, error } = await this.supabase
+                .from('vehicleTable')
+                .select('*', { count: 'exact', head: true });
+            if (error) throw error;
+            return { totalVehicles: count || 0 };
+        } catch (error) {
+            console.warn('Vehicles summary unavailable:', error);
+            return { totalVehicles: 0 };
+        }
+    }
+
+    // Heuristic counts for online/available states across possible schemas
+    async getOnlineDriversCount(): Promise<number> {
+        try {
+            // Try boolean column is_online
+            const attempt1 = await this.supabase
+                .from('driverTable')
+                .select('*', { count: 'exact', head: true })
+                .eq('is_online', true);
+            if (!attempt1.error && typeof attempt1.count === 'number') {
+                return attempt1.count;
+            }
+            // Try status column == 'online'
+            const attempt2 = await this.supabase
+                .from('driverTable')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'online');
+            if (!attempt2.error && typeof attempt2.count === 'number') {
+                return attempt2.count;
+            }
+            // Try presence on-duty flag
+            const attempt3 = await this.supabase
+                .from('driverTable')
+                .select('*', { count: 'exact', head: true })
+                .eq('on_duty', true);
+            if (!attempt3.error && typeof attempt3.count === 'number') {
+                return attempt3.count;
+            }
+        } catch (error) {
+            console.warn('Online drivers count unavailable:', error);
+        }
+        return 0;
+    }
+
+    async getAvailableVehiclesCount(): Promise<number> {
+        try {
+            // Try boolean column is_available
+            const attempt1 = await this.supabase
+                .from('vehicleTable')
+                .select('*', { count: 'exact', head: true })
+                .eq('is_available', true);
+            if (!attempt1.error && typeof attempt1.count === 'number') {
+                return attempt1.count;
+            }
+            // Try status column == 'available'
+            const attempt2 = await this.supabase
+                .from('vehicleTable')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'available');
+            if (!attempt2.error && typeof attempt2.count === 'number') {
+                return attempt2.count;
+            }
+            // Try maintenance flag false
+            const attempt3 = await this.supabase
+                .from('vehicleTable')
+                .select('*', { count: 'exact', head: true })
+                .eq('in_maintenance', false);
+            if (!attempt3.error && typeof attempt3.count === 'number') {
+                return attempt3.count;
+            }
+        } catch (error) {
+            console.warn('Available vehicles count unavailable:', error);
+        }
+        return 0;
     }
 
     async saveTrafficData(trafficData: TrafficData[]): Promise<void> {

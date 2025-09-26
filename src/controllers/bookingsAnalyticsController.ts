@@ -1,11 +1,14 @@
 import { Request, Response } from 'express';
 import { BookingsAnalyticsService } from '../services/bookingsAnalyticsService';
+import { GeminiService } from '../services/geminiService';
 
 export class BookingsAnalyticsController {
   private bookingsAnalyticsService: BookingsAnalyticsService;
+  private geminiService?: GeminiService;
 
-  constructor(bookingsAnalyticsService: BookingsAnalyticsService) {
+  constructor(bookingsAnalyticsService: BookingsAnalyticsService, geminiService?: GeminiService) {
     this.bookingsAnalyticsService = bookingsAnalyticsService;
+    this.geminiService = geminiService;
   }
 
   /**
@@ -25,10 +28,23 @@ export class BookingsAnalyticsController {
       }
 
       const result = await this.bookingsAnalyticsService.getBookingFrequency(days);
-      
+
+      // Optional Gemini explanation when service is available
+      let manongExplanation: string | undefined;
+      if (this.geminiService) {
+        try {
+          manongExplanation = await this.geminiService.explainBookingFrequency(result, days);
+        } catch (e) {
+          console.warn('Gemini explanation failed, continuing without it:', e);
+        }
+      }
+
       res.json({
         success: true,
-        data: result,
+        data: {
+          ...result,
+          manongExplanation
+        },
         metadata: {
           days,
           generatedAt: new Date().toISOString()
